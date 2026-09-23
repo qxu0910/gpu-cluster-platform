@@ -1,0 +1,6 @@
+.git
+.local
+.tools
+target/*
+!target/gpu-cluster-platform-0.1.0.jar
+docs

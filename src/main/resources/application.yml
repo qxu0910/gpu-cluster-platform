@@ -1,0 +1,44 @@
+spring:
+  application:
+    name: gpu-cluster-platform
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:55432/platform}
+    username: ${DATABASE_USER:platform}
+    password: ${DATABASE_PASSWORD}
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+    property-naming-strategy: SNAKE_CASE
+  threads:
+    virtual:
+      enabled: true
+  task:
+    scheduling:
+      pool:
+        size: 3
+server:
+  port: ${PORT:8080}
+  error:
+    include-message: never
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+platform:
+  role: ${PLATFORM_ROLE:all}
+  auth-mode: ${AUTH_MODE:jwt}
+  local-token: ${LOCAL_TOKEN:}
+  subject: ${CALLER_SUBJECT:local-operator}
+  project: ${PROJECT_ID:local}
+  namespace: ${WORKLOAD_NAMESPACE:platform-workloads}
+  cluster-id: ${CLUSTER_ID:local-kind}
+  cpu-test: ${CPU_TEST:false}
+  kubeconfig: ${PLATFORM_KUBECONFIG:}
+  harbor-url: ${HARBOR_URL:https://harbor.platform.test:30443}
+  harbor-user: ${HARBOR_USER:}
+  harbor-password: ${HARBOR_PASSWORD:}
+  pull-secret: ${IMAGE_PULL_SECRET:harbor-pull}
+  encryption-key: ${ENCRYPTION_KEY}
+  issuer: ${JWT_ISSUER:}
+  audience: ${JWT_AUDIENCE:cluster-platform}

@@ -1,0 +1,28 @@
+expose:
+  type: nodePort
+  tls:
+    enabled: true
+    certSource: secret
+    secret:
+      secretName: harbor-tls
+  nodePort:
+    ports:
+      https:
+        nodePort: 30443
+externalURL: https://harbor.platform.test:30443
+existingSecretAdminPassword: harbor-admin
+existingSecretAdminPasswordKey: password
+persistence:
+  enabled: true
+  persistentVolumeClaim:
+    registry:
+      size: 5Gi
+    database:
+      size: 1Gi
+    redis:
+      size: 1Gi
+    jobservice:
+      jobLog:
+        size: 1Gi
+trivy:
+  enabled: false

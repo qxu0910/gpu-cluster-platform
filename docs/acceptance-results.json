@@ -1,0 +1,33 @@
+{
+  "environment": "Windows Docker Desktop Linux / kind CPU",
+  "normal": {
+    "run": "fe8b1d1cfbb044e6bd0d4736694c56d1",
+    "scope": "real CPU happy path",
+    "result": "passed",
+    "completed_at": "2026-09-23T01:27:27.0914734Z",
+    "workload": "workload-57d3bec2-2d65-4092-b47e-3c9214451b60"
+  },
+  "faults": {
+    "completed_at": "2026-09-23T01:36:35.0048561Z",
+    "passed": [
+      "image_not_found",
+      "image_pull_unauthorized",
+      "readiness",
+      "crash",
+      "capacity",
+      "worker_restart",
+      "cluster_disconnect_recovery",
+      "registry_disconnect_recovery"
+    ]
+  },
+  "automated_tests": {
+    "passed": 17,
+    "failed": 0,
+    "skipped": 0
+  },
+  "backup_restore": {
+    "result": "passed",
+    "database": "platform_restore_20260923092645",
+    "flyway": "1"
+  }
+}

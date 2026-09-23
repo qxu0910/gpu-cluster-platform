@@ -1,0 +1,57 @@
+name: gpu-cluster-platform
+services:
+  postgres:
+    image: postgres:17.6
+    environment:
+      POSTGRES_DB: platform
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?Run scripts/init-local.ps1}
+    ports: ["127.0.0.1:55432:5432"]
+    volumes: ["platform-db:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platform -d platform"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  api:
+    profiles: [app]
+    image: gpu-cluster-platform:local
+    build:
+      context: ..
+      dockerfile: Dockerfile.local
+    env_file: ../.local/platform.env
+    environment:
+      PLATFORM_ROLE: api
+      DATABASE_URL: jdbc:postgresql://postgres:5432/platform
+      JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/config/truststore.p12 -Djavax.net.ssl.trustStorePassword=changeit
+    volumes: ["../.local/truststore.p12:/config/truststore.p12:ro"]
+    ports: ["127.0.0.1:18080:8080"]
+    extra_hosts: ["harbor.platform.test:host-gateway"]
+    networks: [default, kind]
+    depends_on:
+      postgres: {condition: service_healthy}
+  worker:
+    profiles: [app]
+    image: gpu-cluster-platform:local
+    build:
+      context: ..
+      dockerfile: Dockerfile.local
+    env_file: ../.local/platform.env
+    environment:
+      PLATFORM_ROLE: worker
+      DATABASE_URL: jdbc:postgresql://postgres:5432/platform
+      PLATFORM_KUBECONFIG: /config/kubeconfig-container
+      JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/config/truststore.p12 -Djavax.net.ssl.trustStorePassword=changeit
+    volumes:
+      - ../.local/truststore.p12:/config/truststore.p12:ro
+      - ../.local/kubeconfig-container:/config/kubeconfig-container:ro
+    extra_hosts: ["harbor.platform.test:host-gateway"]
+    networks: [default, kind]
+    depends_on:
+      postgres: {condition: service_healthy}
+volumes:
+  platform-db:
+networks:
+  kind:
+    external: true
+    name: kind

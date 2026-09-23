@@ -1,0 +1,15 @@
+groups:
+  - name: cluster-platform
+    rules:
+      - alert: PlatformUnknownOperations
+        expr: platform_operations{status="unknown"} > 0
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: Platform has operations with uncertain external state
+      - alert: PlatformObservationStale
+        expr: platform_observation_oldest_seconds > 120
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: Workload observations are stale; inspect cluster connectivity

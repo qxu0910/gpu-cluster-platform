@@ -1,0 +1,5 @@
+FROM eclipse-temurin:21.0.8_9-jre-alpine
+WORKDIR /app
+COPY target/gpu-cluster-platform-0.1.0.jar app.jar
+USER 10001:10001
+ENTRYPOINT ["java","-jar","app.jar"]
