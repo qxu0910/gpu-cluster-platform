@@ -32,6 +32,14 @@ class PlatformIntegrationTest {
         mvc.perform(post("/v1/image-uploads").header("Authorization",TOKEN).header("Idempotency-Key","bad").contentType("application/json").content("{\"repository\":\"test\",\"tag\":\"v1\",\"project\":\"other\"}")).andExpect(status().isBadRequest());
         assertThat(store.jdbc.queryForObject("SELECT count(*) FROM resource",Integer.class)).isZero();
     }
+    @Test void consoleAssetsArePublicWhileManagementDataStaysProtected() throws Exception {
+        var page=mvc.perform(get("/index.html")).andExpect(status().isOk()).andReturn();
+        assertThat(page.getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8)).contains("集群管理控制台");
+        mvc.perform(get("/app.js")).andExpect(status().isOk());
+        mvc.perform(get("/style.css")).andExpect(status().isOk());
+        mvc.perform(get("/v1/workloads")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/v1/image-uploads/private/credentials")).andExpect(status().isUnauthorized());
+    }
     @Test void idempotencyIsAtomicAcrossConcurrentRequestsAndConflicts() throws Exception {
         var body=store.object(Map.of("repository","demo","tag","v1"));
         try(ExecutorService pool=Executors.newFixedThreadPool(6)) {

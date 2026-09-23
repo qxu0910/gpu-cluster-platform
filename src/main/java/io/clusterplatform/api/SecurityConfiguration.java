@@ -24,7 +24,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class SecurityConfiguration {
     @Bean SecurityFilterChain security(HttpSecurity http, Environment env) throws Exception {
         http.csrf(c->c.disable()).sessionManagement(s->s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            .authorizeHttpRequests(a->a.requestMatchers("/actuator/health/**").permitAll().anyRequest().authenticated())
+            .authorizeHttpRequests(a->a.requestMatchers("/", "/index.html", "/app.js", "/style.css", "/actuator/health/**").permitAll().anyRequest().authenticated())
             .exceptionHandling(e->e.authenticationEntryPoint((q,r,x)->error(r,401,"unauthorized"))
                 .accessDeniedHandler((q,r,x)->error(r,403,"forbidden")));
         if ("local".equals(env.getProperty("platform.auth-mode"))) {
