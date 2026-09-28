@@ -21,9 +21,20 @@
     ]
   },
   "automated_tests": {
-    "passed": 17,
+    "passed": 20,
     "failed": 0,
     "skipped": 0
+  },
+  "node_observation": {
+    "completed_at": "2026-09-28T07:24:31.1908063Z",
+    "node_count": 1,
+    "passed": [
+      "live_node_list",
+      "live_node_detail",
+      "dependency_loss_unknown",
+      "reconnection_recovery"
+    ],
+    "result": "passed"
   },
   "backup_restore": {
     "result": "passed",

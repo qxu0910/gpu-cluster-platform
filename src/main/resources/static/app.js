@@ -45,10 +45,10 @@ async function refresh() {
   loading=true; const session=epoch;
   try { const [ws,ims]=await Promise.all([list('/v1/workloads'),list('/v1/images')]);
     for(const [id,op] of operations) if(!['succeeded','failed'].includes(op.status)) operations.set(id,await api('/v1/operations/'+encodeURIComponent(id)));
-    if(session!==epoch) return; workloads=ws; images=ims; render(); renderOperations(); notice('已同步 · '+new Date().toLocaleTimeString('zh-CN'));
+    if(session!==epoch) return; workloads=ws; images=ims; await refreshNodes(); if(session!==epoch) return; render(); renderOperations(); notice('已同步 · '+new Date().toLocaleTimeString('zh-CN'));
   } catch(e) { if(session===epoch) notice(e.message,true); } finally { loading=false; }
 }
-function reset() { epoch++; token=''; workloads=[]; images=[]; operations.clear(); pendingKeys.clear(); $('token').value=''; $('connection-state').textContent='未连接'; for(const id of ['refresh','new-workload','disconnect']) $(id).disabled=true; $('lookup').querySelector('button').disabled=true; render(); renderOperations(); $('total').textContent=$('ready').textContent=$('image-count').textContent='—'; document.querySelectorAll('dialog').forEach(d=>d.close()); }
+function reset() { resetNodes(); epoch++; token=''; workloads=[]; images=[]; operations.clear(); pendingKeys.clear(); $('token').value=''; $('connection-state').textContent='未连接'; for(const id of ['refresh','new-workload','disconnect']) $(id).disabled=true; $('lookup').querySelector('button').disabled=true; render(); renderOperations(); $('total').textContent=$('ready').textContent=$('image-count').textContent='—'; document.querySelectorAll('dialog').forEach(d=>d.close()); }
 $('connect').addEventListener('submit',async e=>{ e.preventDefault(); const value=$('token').value.trim().replace(/^Bearer\s+/i,''); reset(); token=value; const session=epoch; try { await api('/v1/capabilities'); if(session!==epoch)return; $('connection-state').textContent='已连接'; $('disconnect').disabled=$('refresh').disabled=false; $('lookup').querySelector('button').disabled=false; await refresh(); } catch(err) { if(session===epoch){reset(); notice(err.message,true);} } });
 $('disconnect').onclick=()=>{reset();notice('已断开，凭据已从页面内存清除。');};
 $('refresh').onclick=refresh;
@@ -61,3 +61,33 @@ $('action-form').addEventListener('submit',e=>{e.preventDefault();const w=select
 $('lookup').addEventListener('submit',async e=>{e.preventDefault();try{const id=$('operation-id').value.trim();const op=await api('/v1/operations/'+encodeURIComponent(id));operations.set(id,op);renderOperations();}catch(err){notice(err.message,true);}});
 fetch('/actuator/health',{signal:AbortSignal.timeout(10000)}).then(r=>r.json()).then(h=>{$('health').textContent=h.status==='UP'?'● 管理服务在线':'服务未就绪';$('health').className='badge '+(h.status==='UP'?'good':'bad');}).catch(()=>{$('health').textContent='服务连接失败';});
 setInterval(refresh,5000);
+
+function resetNodes() {
+  emptyRows('node-rows',6,'连接后显示节点状态');
+  $('node-freshness').textContent='等待连接'; $('node-freshness').className='badge'; $('node-error').textContent='';
+}
+async function refreshNodes() {
+  const session=epoch;
+  try {
+    let items=[], snapshot;
+    for(let offset=0;;offset+=100) {
+      const page=await api('/v1/nodes?limit=100&offset='+offset); snapshot=page; items.push(...page.items);
+      if(page.items.length<100) break;
+    }
+    $('node-freshness').textContent=snapshot.stale?'Unknown · 观察已过期': '采集于 '+new Date(snapshot.observed_at).toLocaleTimeString('zh-CN');
+    $('node-freshness').className='badge '+(snapshot.stale?'bad':'good');
+    $('node-error').textContent=snapshot.error_code|| (snapshot.stale?'执行器尚未取得新鲜观察，以下容量和条件为历史数据。':'');
+    $('node-rows').replaceChildren();
+    const quantity=(node,key)=> (node.capacity?.[key]??'未上报')+' / '+(node.allocatable?.[key]??'未上报');
+    for(const node of items) {
+      const row=element('tr',''), name=element('td',node.name);
+      name.append(element('small',(node.kubelet_version||'—')+' · '+(node.runtime_version||'—')));
+      const state=element('td',''); state.append(badge(snapshot.stale?'unknown':node.ready==='True'?'ready':node.ready==='False'?'blocked':'unknown'));
+      if(node.unschedulable) state.append(element('small','禁止新调度'));
+      const pressure=(node.conditions||[]).filter(c=>c.type!=='Ready').map(c=>c.type+': '+c.status).join(' · ')||'未上报';
+      row.append(name,state,element('td',quantity(node,'cpu')),element('td',quantity(node,'memory')),element('td',quantity(node,'nvidia.com/gpu')),element('td',pressure));
+      $('node-rows').append(row);
+    }
+    if(!items.length) emptyRows('node-rows',6,snapshot.stale?'尚无可用节点观察，请检查执行器与集群连接。':'集群未返回节点。');
+  } catch(error) { if(session!==epoch) return; emptyRows('node-rows',6,'节点状态暂不可用'); $('node-freshness').textContent='Unknown'; $('node-freshness').className='badge bad'; $('node-error').textContent=error.message; }
+}

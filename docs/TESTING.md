@@ -2,6 +2,16 @@
 
 本文件由实际检查结果更新，不以接口骨架或模拟通过代替真实基础设施验收。
 
+## 节点只读观测增量验证（2026-09-28）
+
+新增 `/v1/nodes`、`/v1/nodes/{name}` 与控制台节点状态页。worker 使用独立只读 ClusterRole 周期采集 Kubernetes Node，API 只返回 Ready、压力条件、可调度状态、CPU/内存/Pod/GPU 容量及 kubelet、容器运行时、体系结构和操作系统；不返回标签、注解或凭据。
+
+`scripts/test.ps1 -Database`：当前共 20 项通过，0 失败、0 错误、0 跳过；新增项目隔离、分页、详情、陈旧状态和安全字段投影测试。`node --check src/main/resources/static/app.js` 通过。
+
+`scripts/acceptance-nodes.ps1` 在真实 kind `gpu-platform` 集群通过：API 列表和详情与 `kubectl get nodes` 一致；仅断开 worker 与 kind 网络后，节点变为 `Unknown` 且携带观测错误；网络恢复后重新收敛为新鲜的 `Ready=True`。本机实测节点为 `gpu-platform-control-plane`，CPU 容量/可分配量为 12/12 核，kubelet 为 v1.34.0，运行时为 containerd 2.1.3。该 CPU 环境未暴露 `nvidia.com/gpu`，因此不把缺失资源解释为 0 张真实 GPU。
+
+机器可读结果写入 [acceptance-results.json](acceptance-results.json)。本增量完成 M3 的只读节点观测；节点排空、维护、镜像预热、GPU 健康和利用率仍在后续阶段。
+
 ## 简易控制台增量验证（2026-09-23）
 
 加入首页、凭据连接、镜像/工作负载列表、创建、启停、扩缩容、删除确认与操作查询。首页及显式静态资源无需认证，业务 API 保持受保护。凭据只在页面内存中保存，不写入浏览器存储或 URL。

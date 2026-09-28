@@ -42,6 +42,8 @@ API 与后台执行器由 `PLATFORM_ROLE=api|worker|all` 控制。默认 `all`�
 
 ## 维护与边界
 
+前端“节点状态”展示真实集群节点的就绪、调度开关、压力条件及资源容量。执行器每 15 秒采集，失联或超过 120 秒未更新显示 Unknown。容量不是实时使用率；尚未接入实时资源监控。只读接口为 `/v1/nodes` 和 `/v1/nodes/{name}`，可运行 `scripts/acceptance-nodes.ps1` 验证真实采集和断连恢复。
+
 - [状态与恢复](docs/OPERATIONS.md)：幂等、租约、失联、恢复及备份。
 - [版本与环境基线](docs/BASELINE.md)：固定版本和未验收环境项。
 - [开发基线](docs/PROJECT_SPEC.md)：原始交接文档，保留为范围依据。

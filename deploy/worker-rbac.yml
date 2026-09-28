@@ -33,3 +33,25 @@ roleRef:
   kind: Role
   name: platform-worker
   apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: gpu-platform-node-observer
+rules:
+  - apiGroups: ['']
+    resources: [nodes]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: gpu-platform-node-observer
+subjects:
+  - kind: ServiceAccount
+    name: platform-worker
+    namespace: platform-workloads
+roleRef:
+  kind: ClusterRole
+  name: gpu-platform-node-observer
+  apiGroup: rbac.authorization.k8s.io

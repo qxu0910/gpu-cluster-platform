@@ -26,7 +26,21 @@ class PlatformIntegrationTest {
     @Autowired MockMvc mvc;
     @Autowired org.springframework.transaction.support.TransactionTemplate tx;
     private static final String TOKEN="Bearer integration-test-token-minimum-32-characters";
-    @BeforeEach void clean() { store.jdbc.execute("TRUNCATE audit_event,idempotency,operation,revision,resource CASCADE"); }
+    @BeforeEach void clean() { store.jdbc.execute("TRUNCATE node_snapshot,audit_event,idempotency,operation,revision,resource CASCADE"); }
+    @Test void nodeSnapshotsAreAuthenticatedScopedPagedAndExpire() throws Exception {
+        mvc.perform(get("/v1/nodes")).andExpect(status().isUnauthorized());
+        store.jdbc.update("INSERT INTO node_snapshot(project,cluster_id,nodes,observed_at) VALUES ('other','local-kind','[{\"name\":\"private-node\",\"ready\":\"True\"}]',now())");
+        mvc.perform(get("/v1/nodes").header("Authorization",TOKEN)).andExpect(status().isOk()).andExpect(jsonPath("$.items").isEmpty()).andExpect(jsonPath("$.stale").value(true));
+        store.jdbc.update("INSERT INTO node_snapshot(project,cluster_id,nodes,observed_at) VALUES ('local','local-kind','[{\"name\":\"worker-1\",\"ready\":\"True\"},{\"name\":\"worker-2\",\"ready\":\"False\"}]',now())");
+        mvc.perform(get("/v1/nodes?limit=1&offset=1").header("Authorization",TOKEN)).andExpect(status().isOk()).andExpect(jsonPath("$.total").value(2)).andExpect(jsonPath("$.items[0].name").value("worker-2"));
+        mvc.perform(get("/v1/nodes/worker-1").header("Authorization",TOKEN)).andExpect(status().isOk()).andExpect(jsonPath("$.node.ready").value("True"));
+        mvc.perform(get("/v1/nodes/missing").header("Authorization",TOKEN)).andExpect(status().isNotFound());
+        mvc.perform(get("/v1/nodes?limit=101").header("Authorization",TOKEN)).andExpect(status().isBadRequest());
+        store.jdbc.update("UPDATE node_snapshot SET observed_at=now()-interval '121 seconds' WHERE project='local'");
+        mvc.perform(get("/v1/nodes/worker-1").header("Authorization",TOKEN)).andExpect(status().isOk()).andExpect(jsonPath("$.stale").value(true)).andExpect(jsonPath("$.node.ready").value("Unknown"));
+        store.jdbc.update("UPDATE node_snapshot SET observed_at=now(),error_code='node_observation_unavailable' WHERE project='local'");
+        mvc.perform(get("/v1/nodes").header("Authorization",TOKEN)).andExpect(jsonPath("$.stale").value(true)).andExpect(jsonPath("$.items[0].ready").value("Unknown"));
+    }
     @Test void unauthorizedAndUnknownFieldsAreRejectedWithoutSideEffects() throws Exception {
         mvc.perform(get("/v1/images")).andExpect(status().isUnauthorized()).andExpect(header().exists("X-Request-ID")).andExpect(jsonPath("$.error.message").value("unauthorized"));
         mvc.perform(post("/v1/image-uploads").header("Authorization",TOKEN).header("Idempotency-Key","bad").contentType("application/json").content("{\"repository\":\"test\",\"tag\":\"v1\",\"project\":\"other\"}")).andExpect(status().isBadRequest());
