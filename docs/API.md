@@ -1,6 +1,6 @@
 # 管理接口契约
 
-所有 `/v1` 请求需要 `Authorization: Bearer <credential>`。调用方主体通过服务端 `CALLER_SUBJECT` 映射到 `PROJECT_ID`、`CLUSTER_ID` 和 `WORKLOAD_NAMESPACE`。本版每个部署配置一个主体映射；未映射主体返回 403，不从请求体或任意令牌 claim 接受项目归属。
+`AUTH_MODE=local` 和 `AUTH_MODE=jwt` 下，所有 `/v1` 请求需要 `Authorization: Bearer <credential>`。本地 `AUTH_MODE=demo` 且 `CPU_TEST=true` 时，浏览器从本机地址访问会自动使用 `CALLER_SUBJECT`，无需 Bearer 请求头；演示模式拒绝非本机 Host 和跨站 Origin，Compose API 端口仅绑定 `127.0.0.1`。调用方主体通过服务端 `CALLER_SUBJECT` 映射到 `PROJECT_ID`、`CLUSTER_ID` 和 `WORKLOAD_NAMESPACE`。本版每个部署配置一个主体映射；未映射主体返回 403，不从请求体或任意令牌 claim 接受项目归属。
 
 生产模式使用 OAuth2 资源服务器，校验 HTTPS issuer、签名、有效期、audience 和 `platform.read`/`platform.write` scope。本地模式只接受至少 32 字符的显式配置令牌。默认认证模式为 JWT，缺少 issuer 或加密密钥则启动失败。
 

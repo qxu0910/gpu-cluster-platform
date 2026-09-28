@@ -1,6 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
-let token = '', epoch = 0, loading = false, busy = false, workloads = [], images = [], selected;
+let token = '', connected = false, epoch = 0, loading = false, busy = false, workloads = [], images = [], selected;
 const operations = new Map(), pendingKeys = new Map();
 const labels = {ready:'已就绪', stopped:'已停止', scheduling:'调度中', pulling:'拉取中', starting:'启动中', blocked:'受阻', unknown:'未知', deleting:'删除中', deleted:'已删除', pending:'待执行', running:'执行中', succeeded:'成功', failed:'失败'};
 function element(tag, text, cls) { const e = document.createElement(tag); e.textContent = text; if(cls) e.className = cls; return e; }
@@ -9,7 +9,8 @@ function badge(state) { return element('span', labels[state] || state, 'badge '+
 async function api(path, method='GET', body, headers={}) {
   const session = epoch;
   const fingerprint = method+' '+path+' '+JSON.stringify(body)+' '+JSON.stringify(headers);
-  const h = {Authorization:'Bearer '+token, ...headers};
+  const h = {...headers};
+  if(token) h.Authorization='Bearer '+token;
   if(method !== 'GET') { if(!pendingKeys.has(fingerprint)) pendingKeys.set(fingerprint, crypto.randomUUID()); h['Idempotency-Key'] = pendingKeys.get(fingerprint); }
   if(body !== undefined) h['Content-Type']='application/json';
   let response;
@@ -37,20 +38,21 @@ function render() {
   $('image-rows').replaceChildren(); $('image-select').replaceChildren();
   for(const image of images) { const tr=element('tr',''), name=element('td',image.tag||image.id); name.append(element('small',image.reference)); tr.append(name,element('td',image.os+'/'+image.architecture),element('td',image.digest)); $('image-rows').append(tr); const option=element('option',(image.tag||'镜像')+' · '+image.id); option.value=image.id; $('image-select').append(option); }
   if(!images.length) emptyRows('image-rows',3,'尚无已核验镜像，请先通过上传接口或验收脚本推送镜像。');
-  $('new-workload').disabled=!token||!images.length||busy;
+  $('new-workload').disabled=!connected||!images.length||busy;
 }
 function renderOperations() { $('operation-list').replaceChildren(); for(const op of [...operations.values()].reverse()) { const row=element('article',''), info=element('div',op.action||'操作'); info.append(element('small',op.id),element('small',op.error?.code||op.stage||'')); row.append(info,badge(op.status)); $('operation-list').append(row); } if(!operations.size) $('operation-list').append(element('p','暂无操作记录','empty')); }
 async function refresh() {
-  if(!token||loading||$('create-dialog').open||$('action-dialog').open) return;
+  if(!connected||loading||$('create-dialog').open||$('action-dialog').open) return;
   loading=true; const session=epoch;
   try { const [ws,ims]=await Promise.all([list('/v1/workloads'),list('/v1/images')]);
     for(const [id,op] of operations) if(!['succeeded','failed'].includes(op.status)) operations.set(id,await api('/v1/operations/'+encodeURIComponent(id)));
     if(session!==epoch) return; workloads=ws; images=ims; await refreshNodes(); if(session!==epoch) return; render(); renderOperations(); notice('已同步 · '+new Date().toLocaleTimeString('zh-CN'));
   } catch(e) { if(session===epoch) notice(e.message,true); } finally { loading=false; }
 }
-function reset() { resetNodes(); epoch++; token=''; workloads=[]; images=[]; operations.clear(); pendingKeys.clear(); $('token').value=''; $('connection-state').textContent='未连接'; for(const id of ['refresh','new-workload','disconnect']) $(id).disabled=true; $('lookup').querySelector('button').disabled=true; render(); renderOperations(); $('total').textContent=$('ready').textContent=$('image-count').textContent='—'; document.querySelectorAll('dialog').forEach(d=>d.close()); }
-$('connect').addEventListener('submit',async e=>{ e.preventDefault(); const value=$('token').value.trim().replace(/^Bearer\s+/i,''); reset(); token=value; const session=epoch; try { await api('/v1/capabilities'); if(session!==epoch)return; $('connection-state').textContent='已连接'; $('disconnect').disabled=$('refresh').disabled=false; $('lookup').querySelector('button').disabled=false; await refresh(); } catch(err) { if(session===epoch){reset(); notice(err.message,true);} } });
-$('disconnect').onclick=()=>{reset();notice('已断开，凭据已从页面内存清除。');};
+function reset() { resetNodes(); epoch++; token=''; connected=false; workloads=[]; images=[]; operations.clear(); pendingKeys.clear(); $('token').value=''; $('connection-state').textContent='未连接'; for(const id of ['refresh','new-workload','disconnect']) $(id).disabled=true; $('lookup').querySelector('button').disabled=true; render(); renderOperations(); $('total').textContent=$('ready').textContent=$('image-count').textContent='—'; document.querySelectorAll('dialog').forEach(d=>d.close()); }
+function connectedAs(label) { connected=true; $('connection-state').textContent=label; $('connection-panel').hidden=true; $('disconnect').disabled=$('refresh').disabled=false; $('lookup').querySelector('button').disabled=false; return refresh(); }
+$('connect').addEventListener('submit',async e=>{ e.preventDefault(); const value=$('token').value.trim().replace(/^Bearer\s+/i,''); reset(); token=value; const session=epoch; try { await api('/v1/capabilities'); if(session!==epoch)return; await connectedAs('已连接'); } catch(err) { if(session===epoch){reset(); $('connection-panel').hidden=false; notice(err.message,true);} } });
+$('disconnect').onclick=()=>{reset();$('connection-panel').hidden=false;notice('已断开，凭据已从页面内存清除。');};
 $('refresh').onclick=refresh;
 $('new-workload').onclick=()=>{$('create-error').textContent='';$('create-dialog').showModal();};
 document.querySelectorAll('.close').forEach(b=>b.onclick=()=>b.closest('dialog').close());
@@ -61,6 +63,11 @@ $('action-form').addEventListener('submit',e=>{e.preventDefault();const w=select
 $('lookup').addEventListener('submit',async e=>{e.preventDefault();try{const id=$('operation-id').value.trim();const op=await api('/v1/operations/'+encodeURIComponent(id));operations.set(id,op);renderOperations();}catch(err){notice(err.message,true);}});
 fetch('/actuator/health',{signal:AbortSignal.timeout(10000)}).then(r=>r.json()).then(h=>{$('health').textContent=h.status==='UP'?'● 管理服务在线':'服务未就绪';$('health').className='badge '+(h.status==='UP'?'good':'bad');}).catch(()=>{$('health').textContent='服务连接失败';});
 setInterval(refresh,5000);
+async function connectDemo() {
+  try { const session=await api('/v1/capabilities'); await connectedAs('演示用户 · '+session.subject); }
+  catch(error) { $('connection-panel').hidden=false; notice('自动连接不可用，请使用已有凭据连接：'+error.message,true); }
+}
+connectDemo();
 
 function resetNodes() {
   emptyRows('node-rows',6,'连接后显示节点状态');

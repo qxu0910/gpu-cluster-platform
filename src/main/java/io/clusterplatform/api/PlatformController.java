@@ -60,6 +60,6 @@ public class PlatformController {
         return mutation(a,q,Map.of("expected_version",version),()->service.change(context.project(a,true),id,"delete",version,null,null));
     }
     @GetMapping("/operations/{id}") ObjectNode operation(Authentication a,@PathVariable String id) { return store.operation(context.project(a,false),id); }
-    @GetMapping("/capabilities") Object capabilities(Authentication a) { context.project(a,false); return Map.of("workload_types",new String[]{"service"},"node_observation",true,"node_maintenance",false,"image_prewarm",false,"physical_actions",false); }
+    @GetMapping("/capabilities") Object capabilities(Authentication a) { context.project(a,false); return Map.of("subject",a.getName(),"workload_types",new String[]{"service"},"node_observation",true,"node_maintenance",false,"image_prewarm",false,"physical_actions",false); }
     private Object list(Authentication a,String kind,int offset,int limit) { return Map.of("items",store.list(context.project(a,false),kind,offset,limit).stream().map(service::safe).toList(),"offset",offset,"limit",limit); }
 }

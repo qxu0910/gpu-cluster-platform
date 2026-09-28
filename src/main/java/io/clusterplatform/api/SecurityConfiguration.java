@@ -27,7 +27,26 @@ public class SecurityConfiguration {
             .authorizeHttpRequests(a->a.requestMatchers("/", "/index.html", "/app.js", "/style.css", "/actuator/health/**").permitAll().anyRequest().authenticated())
             .exceptionHandling(e->e.authenticationEntryPoint((q,r,x)->error(r,401,"unauthorized"))
                 .accessDeniedHandler((q,r,x)->error(r,403,"forbidden")));
-        if ("local".equals(env.getProperty("platform.auth-mode"))) {
+        String mode=env.getProperty("platform.auth-mode");
+        if ("demo".equals(mode)) {
+            if (!env.getProperty("platform.cpu-test",Boolean.class,false)) throw new IllegalStateException("Demo authentication requires CPU_TEST=true");
+            http.addFilterBefore(new OncePerRequestFilter() {
+                protected void doFilterInternal(HttpServletRequest q,HttpServletResponse r,FilterChain chain) throws IOException,ServletException {
+                    String host=q.getServerName();
+                    if(!"localhost".equalsIgnoreCase(host) && !"127.0.0.1".equals(host) && !"[::1]".equals(host)) {
+                        error(r,403,"demo_loopback_only"); return;
+                    }
+                    String origin=q.getHeader("Origin");
+                    String expected=q.getScheme()+"://"+q.getHeader("Host");
+                    if(origin!=null && !origin.equalsIgnoreCase(expected)) {
+                        error(r,403,"demo_cross_origin_forbidden"); return;
+                    }
+                    SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                        env.getRequiredProperty("platform.subject"),null,List.of(new SimpleGrantedAuthority("SCOPE_platform.write"),new SimpleGrantedAuthority("SCOPE_platform.read"))));
+                    chain.doFilter(q,r);
+                }
+            },UsernamePasswordAuthenticationFilter.class);
+        } else if ("local".equals(mode)) {
             String token=env.getRequiredProperty("platform.local-token");
             if(token.length()<32) throw new IllegalStateException("LOCAL_TOKEN must contain at least 32 characters");
             http.addFilterBefore(new OncePerRequestFilter() {
@@ -40,7 +59,7 @@ public class SecurityConfiguration {
                     chain.doFilter(q,r);
                 }
             },UsernamePasswordAuthenticationFilter.class);
-        } else {
+        } else if ("jwt".equals(mode)) {
             String issuer=env.getRequiredProperty("platform.issuer");
             if(!issuer.startsWith("https://")) throw new IllegalStateException("JWT_ISSUER must use HTTPS");
             NimbusJwtDecoder decoder=JwtDecoders.fromIssuerLocation(issuer);
@@ -48,6 +67,8 @@ public class SecurityConfiguration {
                 jwt.getAudience().contains(env.getRequiredProperty("platform.audience")) ? OAuth2TokenValidatorResult.success() :
                     OAuth2TokenValidatorResult.failure(new OAuth2Error("invalid_token"))));
             http.oauth2ResourceServer(o->o.jwt(j->j.decoder(decoder)));
+        } else {
+            throw new IllegalStateException("AUTH_MODE must be demo, local, or jwt");
         }
         return http.build();
     }

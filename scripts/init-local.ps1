@@ -6,7 +6,7 @@ $envPath = Join-Path $local 'platform.env'
 if (!(Test-Path $envPath)) {
     function New-Secret { [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)) }
     @(
-        'AUTH_MODE=local'
+        'AUTH_MODE=demo'
         "LOCAL_TOKEN=$(New-Secret)"
         "ENCRYPTION_KEY=$(New-Secret)"
         "DATABASE_PASSWORD=$(New-Secret)"

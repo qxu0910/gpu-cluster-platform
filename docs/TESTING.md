@@ -2,6 +2,10 @@
 
 本文件由实际检查结果更新，不以接口骨架或模拟通过代替真实基础设施验收。
 
+## 本地演示用户自动进入（2026-09-28）
+
+`AUTH_MODE=demo` 且 `CPU_TEST=true` 时，打开本地控制台自动使用已配置的 `CALLER_SUBJECT`，无需输入 Bearer 凭据。非本机 Host 和跨站 Origin 返回 403；原 `AUTH_MODE=local` 集成测试仍确认缺少凭据返回 401。当前 `scripts/test.ps1 -Database` 共 21 项通过，0 失败、0 错误、0 跳过；`node --check src/main/resources/static/app.js` 通过。
+
 ## 节点只读观测增量验证（2026-09-28）
 
 新增 `/v1/nodes`、`/v1/nodes/{name}` 与控制台节点状态页。worker 使用独立只读 ClusterRole 周期采集 Kubernetes Node，API 只返回 Ready、压力条件、可调度状态、CPU/内存/Pod/GPU 容量及 kubelet、容器运行时、体系结构和操作系统；不返回标签、注解或凭据。
