@@ -1,11 +1,11 @@
 {
   "environment": "Windows Docker Desktop Linux / kind CPU",
   "normal": {
-    "run": "fe8b1d1cfbb044e6bd0d4736694c56d1",
+    "run": "9445a3094d814d7d886f8bd91406516e",
     "scope": "real CPU happy path",
     "result": "passed",
-    "completed_at": "2026-09-23T01:27:27.0914734Z",
-    "workload": "workload-57d3bec2-2d65-4092-b47e-3c9214451b60"
+    "completed_at": "2026-09-28T08:32:12.2480088Z",
+    "workload": "workload-a518d18d-d7a1-4716-bdd4-5279d062540f"
   },
   "faults": {
     "completed_at": "2026-09-23T01:36:35.0048561Z",
@@ -21,7 +21,7 @@
     ]
   },
   "automated_tests": {
-    "passed": 21,
+    "passed": 22,
     "failed": 0,
     "skipped": 0
   },
@@ -33,6 +33,18 @@
       "live_node_detail",
       "dependency_loss_unknown",
       "reconnection_recovery"
+    ],
+    "result": "passed"
+  },
+  "node_maintenance": {
+    "completed_at": "2026-09-28T08:26:59.9605014Z",
+    "node": "gpu-platform-control-plane",
+    "initial_unschedulable": false,
+    "passed": [
+      "real_node_change",
+      "idempotency_replay",
+      "state_observation",
+      "restoration"
     ],
     "result": "passed"
   },

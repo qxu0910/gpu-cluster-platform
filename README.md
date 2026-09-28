@@ -11,6 +11,7 @@
 ```powershell
 ./scripts/init-local.ps1
 ./scripts/setup-cluster.ps1
+./scripts/configure-local-worker-identity.ps1
 ./scripts/run-local.ps1
 ./scripts/test.ps1 -Database
 ./scripts/acceptance.ps1
@@ -19,7 +20,9 @@
 
 `setup-cluster.ps1` 只操作 `gpu-platform` kind 集群、`harbor`/`platform-workloads` 命名空间；域名解析配置限于容器，不修改 Windows hosts。不改变原默认 kubeconfig，项目 kubeconfig 位于 `.local/`。宿主机 curl 调用 Harbor 时使用 `--resolve harbor.platform.test:30443:127.0.0.1`。集群内 Harbor 使用私有 CA（证书颁发机构：用于校验本地服务身份）；Java 信任库和节点信任配置均在项目范围内。证书有效期 30 天，仅用于本地测试。
 
-Compose 将管理接口绑定到 `127.0.0.1:18080`、数据库绑定到 `127.0.0.1:55432`。本地回环管理连接使用 HTTP；生产必须在受控 HTTPS 入口后部署。Harbor 始终校验证书。真实集群、Harbor 管理凭据及 JWT（JSON Web 令牌：用于校验调用方身份）配置不能公开。
+Compose 将管理接口绑定到 `127.0.0.1:18080`、数据库绑定到 `127.0.0.1:55432`。本地 worker 使用单独生成的 24 小时服务账号 kubeconfig，过期后重新运行 `configure-local-worker-identity.ps1` 并重启 worker；不会把管理员 kubeconfig 挂入 worker。本地回环管理连接使用 HTTP；生产必须在受控 HTTPS 入口后部署。Harbor 始终校验证书。真实集群、Harbor 管理凭据及 JWT（JSON Web 令牌：用于校验调用方身份）配置不能公开。
+
+已有 `.local/platform.env` 的开发环境需要加入 `NODE_MAINTENANCE_NODES=gpu-platform-control-plane` 才会显示可用的节点调度按钮；新初始化的环境会自动包含它。其他节点默认不可执行维护。
 
 `.local/platform.env` 存放随机生成的本地配置，不提交。上传授权凭据只能由有写权限的调用方通过专用 `/credentials` 端点读取，普通查询不返回。数据库内环境变量和仓库秘密使用 AES-GCM 加密；`ENCRYPTION_KEY` 丢失将无法恢复这些数据。
 
@@ -42,7 +45,7 @@ API 与后台执行器由 `PLATFORM_ROLE=api|worker|all` 控制。默认 `all`�
 
 ## 维护与边界
 
-前端“节点状态”展示真实集群节点的就绪、调度开关、压力条件及资源容量。执行器每 15 秒采集，失联或超过 120 秒未更新显示 Unknown。容量不是实时使用率；尚未接入实时资源监控。只读接口为 `/v1/nodes` 和 `/v1/nodes/{name}`，可运行 `scripts/acceptance-nodes.ps1` 验证真实采集和断连恢复。
+前端“节点状态”展示真实集群节点的就绪、调度开关、压力条件及资源容量，并可提交停止/恢复新工作负载调度操作。执行器每 15 秒采集，失联或超过 120 秒未更新显示 Unknown。容量不是实时使用率；停止调度不驱逐已有 Pod。节点查询接口为 `/v1/nodes` 和 `/v1/nodes/{name}`；维护操作和验收见 [API 契约](docs/API.md) 与 `scripts/acceptance-node-maintenance.ps1`。现有 kind 为单节点，drain 需独立多节点环境验证后开放。
 
 - [状态与恢复](docs/OPERATIONS.md)：幂等、租约、失联、恢复及备份。
 - [版本与环境基线](docs/BASELINE.md)：固定版本和未验收环境项。

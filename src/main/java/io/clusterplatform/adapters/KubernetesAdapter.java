@@ -57,6 +57,33 @@ public class KubernetesAdapter implements ClusterAdapter {
             throw new DependencyException("cluster_unavailable",true);
         }
     }
+    @Override public ObjectNode reconcileNode(ObjectNode specification) {
+        String name=specification.path("name").asText();
+        if(Arrays.stream(env.getProperty("platform.maintenance-nodes","").split(","))
+            .map(String::trim).noneMatch(name::equals)) throw new DependencyException("node_maintenance_not_allowed",false);
+        String uid=specification.path("uid").asText();
+        boolean desired=specification.path("desired_unschedulable").asBoolean();
+        try {
+            CoreV1Api core=new CoreV1Api(client());
+            V1Node node=core.readNode(name).execute();
+            if(!uid.equals(node.getMetadata().getUid())) throw new DependencyException("node_identity_changed",false);
+            if(node.getSpec()==null) node.setSpec(new V1NodeSpec());
+            if(Boolean.TRUE.equals(node.getSpec().getUnschedulable())!=desired) {
+                node.getSpec().setUnschedulable(desired);
+                core.replaceNode(name,node).execute();
+                node=core.readNode(name).execute();
+            }
+            if(!uid.equals(node.getMetadata().getUid())) throw new DependencyException("node_identity_changed",false);
+            boolean observed=Boolean.TRUE.equals(node.getSpec()!=null?node.getSpec().getUnschedulable():null);
+            return store.object(Map.of("phase",observed==desired?"ready":"reconciling","complete",observed==desired,
+                "unschedulable",observed,"uid",uid));
+        } catch(ApiException x) {
+            if(x.getCode()==404) throw new DependencyException("node_not_found",false);
+            if(x.getCode()==401 || x.getCode()==403) throw new DependencyException("cluster_permission_denied",false);
+            if(x.getCode()==409) throw new DependencyException("node_resource_conflict",true);
+            throw new DependencyException("cluster_unavailable",true);
+        }
+    }
     public V1Deployment deployment(String id,long version,ObjectNode spec) {
         var labels=Map.of(OWNER,id); String ns=spec.path("namespace").asText();
         V1Container c=new V1Container().name("service").image(spec.path("image").asText()).imagePullPolicy("IfNotPresent");

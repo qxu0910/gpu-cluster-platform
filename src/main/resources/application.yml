@@ -33,6 +33,7 @@ platform:
   project: ${PROJECT_ID:local}
   namespace: ${WORKLOAD_NAMESPACE:platform-workloads}
   cluster-id: ${CLUSTER_ID:local-kind}
+  maintenance-nodes: ${NODE_MAINTENANCE_NODES:}
   cpu-test: ${CPU_TEST:false}
   kubeconfig: ${PLATFORM_KUBECONFIG:}
   harbor-url: ${HARBOR_URL:https://harbor.platform.test:30443}

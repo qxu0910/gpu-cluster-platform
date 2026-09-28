@@ -51,6 +51,13 @@ public class OperationWorker {
                 if(!fresh.has("image_id")) fresh.put("image_id",store.insert("image",project,image));
                 fresh.remove("credentials"); store.save(id,1,fresh); finish(op,"succeeded","available",null,null);
             });
+        } else if(action.equals("cordon") || action.equals("uncordon")) {
+            ObjectNode specification=store.resource(project,"node",id,false);
+            ObjectNode observation=cluster.reconcileNode(specification);
+            boolean complete=observation.path("complete").asBoolean();
+            tx.executeWithoutResult(s->{ if(!owns(op)) return;
+                finish(op,complete?"succeeded":"running",observation.path("phase").asText(),null,observation);
+            });
         } else {
             ObjectNode spec=store.resource(project,"workload",id,false);
             ObjectNode observation=cluster.reconcile(id,op.path("generation").asLong(),spec,action.equals("delete"));

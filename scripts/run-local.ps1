@@ -1,5 +1,6 @@
 . "$PSScriptRoot/common.ps1"
 Import-PlatformEnvironment
+if (!(Test-Path "$root/.local/kubeconfig-worker" -PathType Leaf)) { throw 'Run scripts/configure-local-worker-identity.ps1 before starting the scoped worker' }
 $maven = Join-Path $root '.tools/apache-maven-3.9.11/bin/mvn.cmd'
 if (!(Test-Path $maven)) { $maven = 'mvn' }
 Push-Location $root

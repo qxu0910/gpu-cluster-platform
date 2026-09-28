@@ -70,7 +70,7 @@ async function connectDemo() {
 connectDemo();
 
 function resetNodes() {
-  emptyRows('node-rows',6,'连接后显示节点状态');
+  emptyRows('node-rows',7,'连接后显示节点状态');
   $('node-freshness').textContent='等待连接'; $('node-freshness').className='badge'; $('node-error').textContent='';
 }
 async function refreshNodes() {
@@ -92,9 +92,25 @@ async function refreshNodes() {
       const state=element('td',''); state.append(badge(snapshot.stale?'unknown':node.ready==='True'?'ready':node.ready==='False'?'blocked':'unknown'));
       if(node.unschedulable) state.append(element('small','禁止新调度'));
       const pressure=(node.conditions||[]).filter(c=>c.type!=='Ready').map(c=>c.type+': '+c.status).join(' · ')||'未上报';
-      row.append(name,state,element('td',quantity(node,'cpu')),element('td',quantity(node,'memory')),element('td',quantity(node,'nvidia.com/gpu')),element('td',pressure));
+      const control=element('td',''), button=element('button',node.unschedulable?'恢复调度':'停止调度','secondary');
+      button.disabled=snapshot.stale||busy||!node.maintenance_allowed;
+      button.onclick=()=>changeNode(node);
+      control.append(button);
+      if(!node.maintenance_allowed) control.append(element('small','未授权维护'));
+      row.append(name,state,element('td',quantity(node,'cpu')),element('td',quantity(node,'memory')),element('td',quantity(node,'nvidia.com/gpu')),element('td',pressure),control);
       $('node-rows').append(row);
     }
-    if(!items.length) emptyRows('node-rows',6,snapshot.stale?'尚无可用节点观察，请检查执行器与集群连接。':'集群未返回节点。');
-  } catch(error) { if(session!==epoch) return; emptyRows('node-rows',6,'节点状态暂不可用'); $('node-freshness').textContent='Unknown'; $('node-freshness').className='badge bad'; $('node-error').textContent=error.message; }
+    if(!items.length) emptyRows('node-rows',7,snapshot.stale?'尚无可用节点观察，请检查执行器与集群连接。':'集群未返回节点。');
+  } catch(error) { if(session!==epoch) return; emptyRows('node-rows',7,'节点状态暂不可用'); $('node-freshness').textContent='Unknown'; $('node-freshness').className='badge bad'; $('node-error').textContent=error.message; }
+}
+async function changeNode(node) {
+  const action=node.unschedulable?'uncordon':'cordon';
+  if(!confirm((action==='cordon'?'停止':'恢复')+'节点 '+node.name+' 的新工作负载调度？现有服务不会被驱逐。')) return;
+  try {
+    const op=await api('/v1/nodes/'+encodeURIComponent(node.name)+'/'+action,'POST',
+      {expected_uid:node.uid,expected_resource_version:node.resource_version});
+    operations.set(op.operation_id,{id:op.operation_id,action:action==='cordon'?'停止节点调度':'恢复节点调度',status:'pending',stage:'已接收'});
+    renderOperations(); notice('节点操作已接收，正在等待集群实际状态。');
+    await refresh();
+  } catch(error) { notice(error.message,true); }
 }

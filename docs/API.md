@@ -28,16 +28,19 @@
 | `/v1/capabilities` | GET 已实现与未开放能力 |
 | `/v1/nodes` | GET 节点快照列表，支持 offset/limit，返回 total、stale 和 observed_at |
 | `/v1/nodes/{name}` | GET 单个节点快照及采集新鲜度 |
+| `/v1/nodes/{name}/cordon`、`/uncordon` | POST 停止或恢复新工作负载调度；需要写权限、幂等键及节点 UID/版本前提 |
 
-## 节点只读观测（M3 增量）
+## 节点观测与调度开关（M3 增量）
 
 执行器每 15 秒读取配置集群的节点并保存到 PostgreSQL，接口进程只读取快照，不持有 kubeconfig。查询按服务端主体对应的项目和集群隔离，需要 `platform.read` 权限。节点是集群级资源，当前操作主体可观察其映射集群的全部节点；这不是命名空间级节点隔离。
 
-节点字段包含 name、ready（True/False/Unknown）、unschedulable、capacity、allocatable、conditions、kubelet_version、runtime_version、architecture、operating_system。资源只返回 cpu、memory、pods、nvidia.com/gpu；GPU 未上报时不填充为 0。数量保留 Kubernetes 单位，例如内存 Ki、CPU m。容量不代表实时利用率，也不等同剩余未申请资源。
+节点字段包含 name、uid、resource_version、maintenance_allowed、ready（True/False/Unknown）、unschedulable、capacity、allocatable、conditions、kubelet_version、runtime_version、architecture、operating_system。资源只返回 cpu、memory、pods、nvidia.com/gpu；GPU 未上报时不填充为 0。数量保留 Kubernetes 单位，例如内存 Ki、CPU m。容量不代表实时利用率，也不等同剩余未申请资源。
 
 集群调用失败或最后成功采集超过 120 秒，stale=true、ready=Unknown，保留 observed_at 和历史容量/条件。依赖错误通过 error_code 返回，页面明确标记历史观察。首次采集前返回空列表和 node_observation_pending；新鲜快照中不存在的节点详情为 404，无法确认时为 503。节点信息不返回地址、任意标签/注解或原始异常消息。
 
-`deploy/worker-rbac.yml` 增加独立节点只读 ClusterRole（get/list）；本轮没有 cordon、drain 或其他节点变更接口。capabilities 中 node_observation=true、node_maintenance=false。
+`POST /v1/nodes/{name}/cordon` 或 `/uncordon` 使用 `{"expected_uid":"...","expected_resource_version":"..."}`，两个值来自最新节点详情。必须提供 `Idempotency-Key`；重复请求返回同一操作。仅 `NODE_MAINTENANCE_NODES` 显式列出的节点可以修改；快照陈旧返回 503，节点身份或版本变化返回 409，同一节点已有未完成操作也返回 409。worker 再次检查允许名单与实际 UID，使用 Kubernetes resourceVersion 更新 `spec.unschedulable`，确认变更后才把操作标为成功。节点名称重新指向不同 UID 时拒绝沿用旧操作。cordon 只停止新 Pod 调度，不驱逐已有 Pod。调用方需要 `platform.write` 权限。
+
+`deploy/worker-rbac.yml` 只授予节点 get/list；`deploy/node-maintenance-rbac-local.yml` 仅对本地测试节点 `gpu-platform-control-plane` 授予 get/update。`node_observation=true`、`node_maintenance=true`，但 `node_drain=false`、`image_prewarm=false`。drain 和镜像预热仍未开放。
 
 ## 镜像流程
 

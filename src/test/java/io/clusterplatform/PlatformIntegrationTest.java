@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@SpringBootTest(properties={"platform.role=api","platform.auth-mode=local","platform.local-token=integration-test-token-minimum-32-characters","platform.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=","platform.cpu-test=true"})
+@SpringBootTest(properties={"platform.role=api","platform.auth-mode=local","platform.local-token=integration-test-token-minimum-32-characters","platform.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=","platform.cpu-test=true","platform.maintenance-nodes=worker-1"})
 @AutoConfigureMockMvc
 @EnabledIfEnvironmentVariable(named="RUN_DATABASE_TESTS",matches="true")
 class PlatformIntegrationTest {
@@ -27,6 +27,34 @@ class PlatformIntegrationTest {
     @Autowired org.springframework.transaction.support.TransactionTemplate tx;
     private static final String TOKEN="Bearer integration-test-token-minimum-32-characters";
     @BeforeEach void clean() { store.jdbc.execute("TRUNCATE node_snapshot,audit_event,idempotency,operation,revision,resource CASCADE"); }
+    @Test void nodeCordonRequiresFreshIdentityAndIsIdempotent() throws Exception {
+        store.jdbc.update("INSERT INTO node_snapshot(project,cluster_id,nodes,observed_at) VALUES ('local','local-kind','[{\"name\":\"worker-1\",\"uid\":\"uid-1\",\"resource_version\":\"7\",\"ready\":\"True\",\"unschedulable\":false}]',now())");
+        String path="/v1/nodes/worker-1/cordon";
+        String body="{\"expected_uid\":\"uid-1\",\"expected_resource_version\":\"7\"}";
+        mvc.perform(get("/v1/nodes/worker-1").header("Authorization",TOKEN))
+            .andExpect(jsonPath("$.node.maintenance_allowed").value(true));
+        mvc.perform(post("/v1/nodes/other/cordon").header("Authorization",TOKEN).header("Idempotency-Key","not-allowed")
+            .contentType("application/json").content(body)).andExpect(status().isForbidden());
+        mvc.perform(post(path).header("Authorization",TOKEN).contentType("application/json").content(body)).andExpect(status().isBadRequest());
+        mvc.perform(post(path).header("Authorization",TOKEN).header("Idempotency-Key","wrong")
+            .contentType("application/json").content(body.replace("uid-1","uid-2"))).andExpect(status().isConflict());
+        String first=mvc.perform(post(path).header("Authorization",TOKEN).header("Idempotency-Key","cordon-once")
+            .contentType("application/json").content(body)).andExpect(status().isAccepted())
+            .andReturn().getResponse().getContentAsString();
+        store.jdbc.update("UPDATE node_snapshot SET nodes='[{\"name\":\"worker-1\",\"uid\":\"uid-1\",\"resource_version\":\"8\",\"ready\":\"True\",\"unschedulable\":true}]'::jsonb WHERE project='local'");
+        mvc.perform(post(path).header("Authorization",TOKEN).header("Idempotency-Key","cordon-once")
+            .contentType("application/json").content(body)).andExpect(status().isAccepted())
+            .andExpect(content().json(first));
+        mvc.perform(post(path).header("Authorization",TOKEN).header("Idempotency-Key","other")
+            .contentType("application/json").content(body)).andExpect(status().isConflict());
+        assertThat(store.jdbc.queryForObject("SELECT count(*) FROM operation WHERE action='cordon'",Integer.class)).isEqualTo(1);
+        var cluster=org.mockito.Mockito.mock(io.clusterplatform.adapters.ClusterAdapter.class);
+        org.mockito.Mockito.when(cluster.reconcileNode(org.mockito.ArgumentMatchers.any()))
+            .thenReturn(store.object(Map.of("phase","ready","complete",true,"unschedulable",true)));
+        new io.clusterplatform.worker.OperationWorker(store,
+            org.mockito.Mockito.mock(io.clusterplatform.adapters.RegistryAdapter.class),cluster,tx).tick();
+        assertThat(store.operation("local",store.parse(first).path("operation_id").asText()).path("status").asText()).isEqualTo("succeeded");
+    }
     @Test void nodeSnapshotsAreAuthenticatedScopedPagedAndExpire() throws Exception {
         mvc.perform(get("/v1/nodes")).andExpect(status().isUnauthorized());
         store.jdbc.update("INSERT INTO node_snapshot(project,cluster_id,nodes,observed_at) VALUES ('other','local-kind','[{\"name\":\"private-node\",\"ready\":\"True\"}]',now())");

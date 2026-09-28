@@ -40,11 +40,11 @@ services:
     environment:
       PLATFORM_ROLE: worker
       DATABASE_URL: jdbc:postgresql://postgres:5432/platform
-      PLATFORM_KUBECONFIG: /config/kubeconfig-container
+      PLATFORM_KUBECONFIG: /config/kubeconfig-worker
       JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/config/truststore.p12 -Djavax.net.ssl.trustStorePassword=changeit
     volumes:
       - ../.local/truststore.p12:/config/truststore.p12:ro
-      - ../.local/kubeconfig-container:/config/kubeconfig-container:ro
+      - ../.local/kubeconfig-worker:/config/kubeconfig-worker:ro
     extra_hosts: ["harbor.platform.test:host-gateway"]
     networks: [default, kind]
     depends_on:

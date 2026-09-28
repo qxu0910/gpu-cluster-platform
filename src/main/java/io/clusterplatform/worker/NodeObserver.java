@@ -41,6 +41,8 @@ public class NodeObserver {
     public static ObjectNode project(V1Node node, Store store) {
         ObjectNode result=store.object(Map.of("name",node.getMetadata().getName(),"ready","Unknown",
             "unschedulable",node.getSpec()!=null && Boolean.TRUE.equals(node.getSpec().getUnschedulable())));
+        result.put("uid",node.getMetadata().getUid());
+        result.put("resource_version",node.getMetadata().getResourceVersion());
         var conditions=result.putArray("conditions");
         var status=node.getStatus();
         if(status==null) return result;

@@ -2,6 +2,16 @@
 
 本文件由实际检查结果更新，不以接口骨架或模拟通过代替真实基础设施验收。
 
+## 节点调度开关增量验证（2026-09-28）
+
+新增受允许名单保护的 cordon/uncordon 操作、持久化任务、幂等重放、节点 UID 校验和前端操作按钮。worker 改用独立 24 小时服务账号 kubeconfig；本地 ClusterRole 的 update 权限仅覆盖 `gpu-platform-control-plane`。使用该服务账号直接检查权限：指定节点 update=yes，未授权节点 update=no，节点列表 list=yes。两份 RBAC 清单均通过 Kubernetes API 服务器 dry-run。
+
+`scripts/test.ps1 -Database`：当前 22 项通过，0 失败、0 错误、0 跳过。新增测试验证缺少幂等键、错误 UID、未列入允许名单的节点、相同请求重放、冲突请求以及 worker 操作完成。15 个 PowerShell 脚本和前端 JavaScript 语法检查通过。
+
+`scripts/acceptance-node-maintenance.ps1` 在真实 `kind-gpu-platform` 集群通过：对唯一允许的节点停止新调度，重复请求返回同一操作；Kubernetes 与 API 均观察到变化；随后恢复初始可调度状态。最终直接查询 Kubernetes 和 API，均为 `unschedulable=false`，快照新鲜。当前 kind 只有一个控制平面节点，未测试 Pod 迁移或 drain；本增量仅完成调度开关。
+
+切换为受限 worker 身份后，`scripts/acceptance.ps1` 于 2026-09-28 16:32（北京时间）再次通过完整 CPU 生命周期：真实 Harbor 推送与拉取、创建就绪、扩缩容、停止恢复、版本更新和删除。旧的故障注入结果保留原验收时间，本次未重跑故障套件。
+
 ## 本地演示用户自动进入（2026-09-28）
 
 `AUTH_MODE=demo` 且 `CPU_TEST=true` 时，打开本地控制台自动使用已配置的 `CALLER_SUBJECT`，无需输入 Bearer 凭据。非本机 Host 和跨站 Origin 返回 403；原 `AUTH_MODE=local` 集成测试仍确认缺少凭据返回 401。当前 `scripts/test.ps1 -Database` 共 21 项通过，0 失败、0 错误、0 跳过；`node --check src/main/resources/static/app.js` 通过。

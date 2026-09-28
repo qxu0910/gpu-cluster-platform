@@ -18,6 +18,7 @@ if (!(Test-Path $envPath)) {
         'PROJECT_ID=local'
         'WORKLOAD_NAMESPACE=platform-workloads'
         'CLUSTER_ID=local-kind'
+        'NODE_MAINTENANCE_NODES=gpu-platform-control-plane'
     ) | Set-Content -LiteralPath $envPath -Encoding utf8
 }
 Write-Output 'Local credentials initialized in ignored .local/platform.env (values not printed).'

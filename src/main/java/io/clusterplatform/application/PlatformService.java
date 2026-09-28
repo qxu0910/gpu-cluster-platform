@@ -83,6 +83,20 @@ public class PlatformService {
         store.jdbc.update("UPDATE resource SET deleted=true WHERE id=?",id);
         ObjectNode result=operation(project,id,"revoke_image",1); store.jdbc.update("UPDATE operation SET status='succeeded',stage='revoked' WHERE id=?",result.path("operation_id").asText()); return result;
     }
+    public ObjectNode changeNode(String project,String name,String uid,String resourceVersion,boolean unschedulable) {
+        String clusterId=env.getRequiredProperty("platform.cluster-id");
+        String id="node-"+UUID.nameUUIDFromBytes((clusterId+"/"+name).getBytes(StandardCharsets.UTF_8));
+        ObjectNode initial=store.object(Map.of("name",name,"uid",uid,"cluster_id",clusterId));
+        store.jdbc.update("INSERT INTO resource(id,kind,project,body) VALUES (?,'node',?,?::jsonb) ON CONFLICT(id) DO NOTHING",id,project,initial.toString());
+        ObjectNode node=store.resource(project,"node",id,true);
+        if(!uid.equals(node.path("uid").asText())) throw ApiException.conflict("node_identity_changed");
+        assertIdle(id);
+        long version=node.path("version").asLong()+1;
+        node.put("desired_unschedulable",unschedulable);
+        node.put("accepted_resource_version",resourceVersion);
+        store.save(id,version,node);
+        return operation(project,id,unschedulable?"cordon":"uncordon",version);
+    }
     private void prepare(ObjectNode body,ObjectNode image) {
         body.put("image",image.path("reference").asText()); body.put("namespace",env.getRequiredProperty("platform.namespace"));
         body.put("pull_credentials",image.path("pull_credentials").asText());

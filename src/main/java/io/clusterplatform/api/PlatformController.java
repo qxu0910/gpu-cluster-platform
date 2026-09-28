@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.function.Supplier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.http.ResponseEntity;
+import org.springframework.core.env.Environment;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
@@ -18,8 +19,8 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/v1")
 @ConditionalOnExpression("'${platform.role}' != 'worker'")
 public class PlatformController {
-    private final PlatformService service; private final Store store; private final RequestContext context;
-    public PlatformController(PlatformService service,Store store,RequestContext context) { this.service=service; this.store=store; this.context=context; }
+    private final PlatformService service; private final Store store; private final RequestContext context; private final Environment env;
+    public PlatformController(PlatformService service,Store store,RequestContext context,Environment env) { this.service=service; this.store=store; this.context=context; this.env=env; }
     private ResponseEntity<?> mutation(Authentication a,HttpServletRequest q,Object body,Supplier<ObjectNode> action) {
         String project=context.project(a,true);
         ObjectNode result=service.mutate(a.getName(),project,q.getMethod(),q.getRequestURI(),q.getHeader("Idempotency-Key"),q.getAttribute("requestId").toString(),store.json.valueToTree(body),action);
@@ -60,6 +61,6 @@ public class PlatformController {
         return mutation(a,q,Map.of("expected_version",version),()->service.change(context.project(a,true),id,"delete",version,null,null));
     }
     @GetMapping("/operations/{id}") ObjectNode operation(Authentication a,@PathVariable String id) { return store.operation(context.project(a,false),id); }
-    @GetMapping("/capabilities") Object capabilities(Authentication a) { context.project(a,false); return Map.of("subject",a.getName(),"workload_types",new String[]{"service"},"node_observation",true,"node_maintenance",false,"image_prewarm",false,"physical_actions",false); }
+    @GetMapping("/capabilities") Object capabilities(Authentication a) { context.project(a,false); return Map.of("subject",a.getName(),"workload_types",new String[]{"service"},"node_observation",true,"node_maintenance",!env.getProperty("platform.maintenance-nodes","").isBlank(),"node_drain",false,"image_prewarm",false,"physical_actions",false); }
     private Object list(Authentication a,String kind,int offset,int limit) { return Map.of("items",store.list(context.project(a,false),kind,offset,limit).stream().map(service::safe).toList(),"offset",offset,"limit",limit); }
 }
