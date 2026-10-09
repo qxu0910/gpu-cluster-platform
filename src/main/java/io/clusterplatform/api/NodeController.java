@@ -29,10 +29,12 @@ public class NodeController {
     private final RequestContext context;
     private final String clusterId;
     private final Set<String> maintenanceNodes;
+    private final boolean drainEnabled;
     public NodeController(Store store,PlatformService service,RequestContext context,Environment env) {
         this.store=store; this.service=service; this.context=context; clusterId=env.getRequiredProperty("platform.cluster-id");
         maintenanceNodes=Arrays.stream(env.getProperty("platform.maintenance-nodes","").split(","))
             .map(String::trim).filter(value->!value.isEmpty()).collect(Collectors.toUnmodifiableSet());
+        drainEnabled=env.getProperty("platform.drain-enabled",Boolean.class,false);
     }
     private ObjectNode snapshot(Authentication auth) {
         String project=context.project(auth,false);
@@ -68,7 +70,7 @@ public class NodeController {
     }
     public record NodeChange(@NotBlank @Size(max=128) String expectedUid,
                              @NotBlank @Size(max=128) String expectedResourceVersion) { }
-    @PostMapping("/{name}/{action:cordon|uncordon}") public ResponseEntity<ObjectNode> change(
+    @PostMapping("/{name}/{action:cordon|uncordon|drain}") public ResponseEntity<ObjectNode> change(
             Authentication auth,HttpServletRequest request,@PathVariable String name,@PathVariable String action,
             @Valid @RequestBody NodeChange body) {
         String project=context.project(auth,true);
@@ -78,6 +80,7 @@ public class NodeController {
         return ResponseEntity.accepted().location(URI.create("/v1/operations/"+result.path("operation_id").asText())).body(result);
     }
     private ObjectNode validateAndChange(Authentication auth,String project,String name,String action,NodeChange body) {
+        if(action.equals("drain") && !drainEnabled) throw new ApiException(501,"node_drain_unavailable");
         if(!maintenanceNodes.contains(name)) throw new ApiException(403,"node_maintenance_not_allowed");
         ObjectNode current=snapshot(auth);
         if(current.path("stale").asBoolean()) throw new ApiException(503,"node_observation_unavailable");
@@ -86,6 +89,6 @@ public class NodeController {
         if(observed==null) throw new ApiException(404,"node_not_found");
         if(!body.expectedUid().equals(observed.path("uid").asText()) ||
             !body.expectedResourceVersion().equals(observed.path("resource_version").asText())) throw ApiException.conflict("node_version_conflict");
-        return service.changeNode(project,name,body.expectedUid(),body.expectedResourceVersion(),action.equals("cordon"));
+        return service.changeNode(project,name,body.expectedUid(),body.expectedResourceVersion(),action);
     }
 }

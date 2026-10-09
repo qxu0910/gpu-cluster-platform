@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@SpringBootTest(properties={"platform.role=api","platform.auth-mode=local","platform.local-token=integration-test-token-minimum-32-characters","platform.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=","platform.cpu-test=true","platform.maintenance-nodes=worker-1"})
+@SpringBootTest(properties={"platform.role=api","platform.auth-mode=local","platform.local-token=integration-test-token-minimum-32-characters","platform.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=","platform.cpu-test=true","platform.maintenance-nodes=worker-1","platform.drain-enabled=true"})
 @AutoConfigureMockMvc
 @EnabledIfEnvironmentVariable(named="RUN_DATABASE_TESTS",matches="true")
 class PlatformIntegrationTest {
@@ -54,6 +54,28 @@ class PlatformIntegrationTest {
         new io.clusterplatform.worker.OperationWorker(store,
             org.mockito.Mockito.mock(io.clusterplatform.adapters.RegistryAdapter.class),cluster,tx).tick();
         assertThat(store.operation("local",store.parse(first).path("operation_id").asText()).path("status").asText()).isEqualTo("succeeded");
+    }
+    @Test void blockedDrainIsIdempotentAndCanBeSupersededByUncordon() throws Exception {
+        store.jdbc.update("INSERT INTO node_snapshot(project,cluster_id,nodes,observed_at) VALUES ('local','local-kind','[{\"name\":\"worker-1\",\"uid\":\"uid-1\",\"resource_version\":\"7\",\"ready\":\"True\",\"unschedulable\":false}]',now())");
+        String path="/v1/nodes/worker-1/drain";
+        String body="{\"expected_uid\":\"uid-1\",\"expected_resource_version\":\"7\"}";
+        String accepted=mvc.perform(post(path).header("Authorization",TOKEN).header("Idempotency-Key","drain-once")
+            .contentType("application/json").content(body)).andExpect(status().isAccepted()).andReturn().getResponse().getContentAsString();
+        mvc.perform(post(path).header("Authorization",TOKEN).header("Idempotency-Key","drain-once")
+            .contentType("application/json").content(body)).andExpect(status().isAccepted()).andExpect(content().json(accepted));
+        var cluster=org.mockito.Mockito.mock(io.clusterplatform.adapters.ClusterAdapter.class);
+        org.mockito.Mockito.when(cluster.reconcileDrain(org.mockito.ArgumentMatchers.any()))
+            .thenReturn(store.object(Map.of("phase","blocked","complete",false,"error_code","eviction_pdb_or_rate_limited")));
+        new io.clusterplatform.worker.OperationWorker(store,
+            org.mockito.Mockito.mock(io.clusterplatform.adapters.RegistryAdapter.class),cluster,tx).tick();
+        String operation=store.parse(accepted).path("operation_id").asText();
+        assertThat(store.operation("local",operation).path("status").asText()).isEqualTo("blocked");
+        store.jdbc.update("UPDATE node_snapshot SET nodes='[{\"name\":\"worker-1\",\"uid\":\"uid-1\",\"resource_version\":\"8\",\"ready\":\"True\",\"unschedulable\":true}]'::jsonb WHERE project='local'");
+        mvc.perform(post("/v1/nodes/worker-1/uncordon").header("Authorization",TOKEN).header("Idempotency-Key","recover")
+            .contentType("application/json").content("{\"expected_uid\":\"uid-1\",\"expected_resource_version\":\"8\"}"))
+            .andExpect(status().isAccepted());
+        assertThat(store.operation("local",operation).path("stage").asText()).isEqualTo("superseded");
+        assertThat(store.jdbc.queryForObject("SELECT count(*) FROM operation WHERE action='drain'",Integer.class)).isEqualTo(1);
     }
     @Test void nodeSnapshotsAreAuthenticatedScopedPagedAndExpire() throws Exception {
         mvc.perform(get("/v1/nodes")).andExpect(status().isUnauthorized());

@@ -51,12 +51,14 @@ public class OperationWorker {
                 if(!fresh.has("image_id")) fresh.put("image_id",store.insert("image",project,image));
                 fresh.remove("credentials"); store.save(id,1,fresh); finish(op,"succeeded","available",null,null);
             });
-        } else if(action.equals("cordon") || action.equals("uncordon")) {
+        } else if(action.equals("cordon") || action.equals("uncordon") || action.equals("drain")) {
             ObjectNode specification=store.resource(project,"node",id,false);
-            ObjectNode observation=cluster.reconcileNode(specification);
+            ObjectNode observation=action.equals("drain")?cluster.reconcileDrain(specification):cluster.reconcileNode(specification);
             boolean complete=observation.path("complete").asBoolean();
             tx.executeWithoutResult(s->{ if(!owns(op)) return;
-                finish(op,complete?"succeeded":"running",observation.path("phase").asText(),null,observation);
+                String phase=observation.path("phase").asText();
+                finish(op,complete?"succeeded":phase.equals("blocked")?"blocked":"running",phase,
+                    observation.has("error_code")?observation.path("error_code").asText():null,observation);
             });
         } else {
             ObjectNode spec=store.resource(project,"workload",id,false);

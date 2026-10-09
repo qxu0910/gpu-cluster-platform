@@ -2,6 +2,10 @@
 
 本文件由实际检查结果更新，不以接口骨架或模拟通过代替真实基础设施验收。
 
+## M3 受控 drain 开发检查（2026-10-09）
+
+新增默认关闭的 drain 接口与执行器逻辑，专用 RBAC 尚未应用到集群。`mvn verify` 通过：24 项发现、8 项执行通过、16 项因本地数据库依赖未运行；新增数据库集成测试尚待执行。静态测试确认仅跳过 DaemonSet/镜像 Pod，并识别 emptyDir 本地数据。Docker Desktop Linux 引擎无法连接，现有 kind API 亦不可达，因此没有真实多节点 Pod 迁移、PDB 拒绝、重启恢复验收。`node_drain` 保持 false；M3 drain 未完成。
+
 ## 节点调度开关增量验证（2026-09-28）
 
 新增受允许名单保护的 cordon/uncordon 操作、持久化任务、幂等重放、节点 UID 校验和前端操作按钮。worker 改用独立 24 小时服务账号 kubeconfig；本地 ClusterRole 的 update 权限仅覆盖 `gpu-platform-control-plane`。使用该服务账号直接检查权限：指定节点 update=yes，未授权节点 update=no，节点列表 list=yes。两份 RBAC 清单均通过 Kubernetes API 服务器 dry-run。

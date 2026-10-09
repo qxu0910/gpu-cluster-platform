@@ -1,0 +1,48 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gpu-platform-node-drain
+  namespace: platform-workloads
+rules:
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get]
+  - apiGroups: ['']
+    resources: [pods/eviction]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gpu-platform-node-drain
+  namespace: platform-workloads
+subjects:
+  - kind: ServiceAccount
+    name: platform-worker
+    namespace: platform-workloads
+roleRef:
+  kind: Role
+  name: gpu-platform-node-drain
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: gpu-platform-node-drain-observer
+rules:
+  - apiGroups: ['']
+    resources: [pods]
+    verbs: [list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: gpu-platform-node-drain-observer
+subjects:
+  - kind: ServiceAccount
+    name: platform-worker
+    namespace: platform-workloads
+roleRef:
+  kind: ClusterRole
+  name: gpu-platform-node-drain-observer
+  apiGroup: rbac.authorization.k8s.io

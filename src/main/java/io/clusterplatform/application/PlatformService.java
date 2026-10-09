@@ -83,19 +83,28 @@ public class PlatformService {
         store.jdbc.update("UPDATE resource SET deleted=true WHERE id=?",id);
         ObjectNode result=operation(project,id,"revoke_image",1); store.jdbc.update("UPDATE operation SET status='succeeded',stage='revoked' WHERE id=?",result.path("operation_id").asText()); return result;
     }
-    public ObjectNode changeNode(String project,String name,String uid,String resourceVersion,boolean unschedulable) {
+    public ObjectNode changeNode(String project,String name,String uid,String resourceVersion,String action) {
+        if(!Set.of("cordon","uncordon","drain").contains(action)) throw new ApiException(400,"invalid_node_action");
         String clusterId=env.getRequiredProperty("platform.cluster-id");
         String id="node-"+UUID.nameUUIDFromBytes((clusterId+"/"+name).getBytes(StandardCharsets.UTF_8));
         ObjectNode initial=store.object(Map.of("name",name,"uid",uid,"cluster_id",clusterId));
         store.jdbc.update("INSERT INTO resource(id,kind,project,body) VALUES (?,'node',?,?::jsonb) ON CONFLICT(id) DO NOTHING",id,project,initial.toString());
         ObjectNode node=store.resource(project,"node",id,true);
         if(!uid.equals(node.path("uid").asText())) throw ApiException.conflict("node_identity_changed");
-        assertIdle(id);
+        if(action.equals("uncordon")) supersedeIdleDrain(id); else assertIdle(id);
         long version=node.path("version").asLong()+1;
-        node.put("desired_unschedulable",unschedulable);
+        node.put("desired_unschedulable",!action.equals("uncordon"));
         node.put("accepted_resource_version",resourceVersion);
         store.save(id,version,node);
-        return operation(project,id,unschedulable?"cordon":"uncordon",version);
+        return operation(project,id,action,version);
+    }
+    private void supersedeIdleDrain(String id) {
+        var active=store.jdbc.queryForList("SELECT id,action,(lease_owner IS NOT NULL AND lease_until>now()) AS leased FROM operation WHERE target_id=? AND status IN ('pending','running','blocked','unknown') FOR UPDATE",id);
+        for(var op:active) {
+            if(!"drain".equals(op.get("action")) || Boolean.TRUE.equals(op.get("leased"))) throw ApiException.conflict("operation_in_progress");
+            store.jdbc.update("UPDATE operation SET status='failed',stage='superseded',error_code='superseded_by_uncordon',lease_owner=NULL,lease_until=NULL,updated_at=now() WHERE id=?",op.get("id"));
+            store.jdbc.update("INSERT INTO audit_event(caller,project,request_id,action,target_id,result) SELECT 'worker',project,id,action,target_id,'superseded' FROM operation WHERE id=?",op.get("id"));
+        }
     }
     private void prepare(ObjectNode body,ObjectNode image) {
         body.put("image",image.path("reference").asText()); body.put("namespace",env.getRequiredProperty("platform.namespace"));

@@ -29,6 +29,7 @@
 | `/v1/nodes` | GET 节点快照列表，支持 offset/limit，返回 total、stale 和 observed_at |
 | `/v1/nodes/{name}` | GET 单个节点快照及采集新鲜度 |
 | `/v1/nodes/{name}/cordon`、`/uncordon` | POST 停止或恢复新工作负载调度；需要写权限、幂等键及节点 UID/版本前提 |
+| `/v1/nodes/{name}/drain` | POST 受控排空；仅在 `NODE_DRAIN_ENABLED=true`、允许名单及专用 RBAC 配齐后开放 |
 
 ## 节点观测与调度开关（M3 增量）
 
@@ -40,7 +41,9 @@
 
 `POST /v1/nodes/{name}/cordon` 或 `/uncordon` 使用 `{"expected_uid":"...","expected_resource_version":"..."}`，两个值来自最新节点详情。必须提供 `Idempotency-Key`；重复请求返回同一操作。仅 `NODE_MAINTENANCE_NODES` 显式列出的节点可以修改；快照陈旧返回 503，节点身份或版本变化返回 409，同一节点已有未完成操作也返回 409。worker 再次检查允许名单与实际 UID，使用 Kubernetes resourceVersion 更新 `spec.unschedulable`，确认变更后才把操作标为成功。节点名称重新指向不同 UID 时拒绝沿用旧操作。cordon 只停止新 Pod 调度，不驱逐已有 Pod。调用方需要 `platform.write` 权限。
 
-`deploy/worker-rbac.yml` 只授予节点 get/list；`deploy/node-maintenance-rbac-local.yml` 仅对本地测试节点 `gpu-platform-control-plane` 授予 get/update。`node_observation=true`、`node_maintenance=true`，但 `node_drain=false`、`image_prewarm=false`。drain 和镜像预热仍未开放。
+`deploy/worker-rbac.yml` 只授予节点 get/list；`deploy/node-maintenance-rbac-local.yml` 仅对本地测试节点 `gpu-platform-control-plane` 授予 get/update。drain 所需的跨命名空间 Pod 列表、平台命名空间 ReplicaSet 读取与 Pod Eviction 创建权限单独放在 `deploy/node-drain-rbac.yml`，默认不安装。`node_observation=true`、`node_maintenance=true`，当前 `node_drain=false`、`image_prewarm=false`。
+
+drain 请求体与 cordon 相同。执行器要求另有 Ready 且可调度的节点，检查目标节点全部非终态 Pod：跳过 DaemonSet 与静态镜像 Pod，只驱逐数据库中本项目工作负载所拥有的 Deployment→ReplicaSet→Pod；发现非托管 Pod、emptyDir 或 hostPath 则 blocked，不执行强制删除。先停止目标节点新调度，再逐个调用 policy/v1 Eviction，429/PDB 拒绝进入可重试 blocked，直到平台 Pod 从目标节点消失才成功。blocked drain 可在无有效执行器租约时由 uncordon 接替。此功能需在隔离多节点集群真实验收后开启；当前默认返回 501，不能将代码级测试视为排空成功。
 
 ## 镜像流程
 

@@ -40,4 +40,16 @@ class KubernetesAdapterTest {
         assertThat(a).isNotEqualTo(b); assertThat(secrets.decrypt(a)).isEqualTo("sensitive");
         assertThatThrownBy(()->secrets.decrypt(a.substring(0,a.length()-5)+"AAAAA")).isInstanceOf(IllegalStateException.class);
     }
+    @Test void drainSkipsOnlyDaemonOrMirrorPodsAndProtectsLocalData() {
+        var unmanaged=new V1Pod().metadata(new V1ObjectMeta().name("plain")).spec(new V1PodSpec());
+        assertThat(KubernetesAdapter.ignoredDrainPod(unmanaged)).isFalse();
+        var daemon=new V1Pod().metadata(new V1ObjectMeta().ownerReferences(List.of(
+            new V1OwnerReference().apiVersion("apps/v1").kind("DaemonSet").name("agent").uid("daemon-uid").controller(true))));
+        assertThat(KubernetesAdapter.ignoredDrainPod(daemon)).isTrue();
+        var mirror=new V1Pod().metadata(new V1ObjectMeta().annotations(Map.of("kubernetes.io/config.mirror","hash")));
+        assertThat(KubernetesAdapter.ignoredDrainPod(mirror)).isTrue();
+        assertThat(KubernetesAdapter.hasLocalStorage(unmanaged)).isFalse();
+        unmanaged.getSpec().setVolumes(List.of(new V1Volume().name("scratch").emptyDir(new V1EmptyDirVolumeSource())));
+        assertThat(KubernetesAdapter.hasLocalStorage(unmanaged)).isTrue();
+    }
 }

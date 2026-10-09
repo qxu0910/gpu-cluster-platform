@@ -84,6 +84,101 @@ public class KubernetesAdapter implements ClusterAdapter {
             throw new DependencyException("cluster_unavailable",true);
         }
     }
+    @Override public ObjectNode reconcileDrain(ObjectNode specification) {
+        if(!env.getProperty("platform.drain-enabled",Boolean.class,false)) throw new DependencyException("node_drain_unavailable",false);
+        String name=specification.path("name").asText();
+        if(!specification.path("desired_unschedulable").asBoolean()) throw new DependencyException("invalid_drain_state",false);
+        if(Arrays.stream(env.getProperty("platform.maintenance-nodes","").split(","))
+            .map(String::trim).noneMatch(name::equals)) throw new DependencyException("node_maintenance_not_allowed",false);
+        try {
+            CoreV1Api core=new CoreV1Api(client());
+            AppsV1Api apps=new AppsV1Api(client());
+            V1Node target=core.readNode(name).execute();
+            if(!specification.path("uid").asText().equals(target.getMetadata().getUid())) throw new DependencyException("node_identity_changed",false);
+            boolean wasUnschedulable=target.getSpec()!=null && Boolean.TRUE.equals(target.getSpec().getUnschedulable());
+            boolean alternative=core.listNode().execute().getItems().stream().anyMatch(node->
+                !name.equals(node.getMetadata().getName()) &&
+                (node.getSpec()==null || !Boolean.TRUE.equals(node.getSpec().getUnschedulable())) &&
+                (node.getSpec()==null || node.getSpec().getTaints()==null || node.getSpec().getTaints().stream()
+                    .noneMatch(taint->"NoSchedule".equals(taint.getEffect()) || "NoExecute".equals(taint.getEffect()))) &&
+                node.getStatus()!=null && node.getStatus().getConditions()!=null &&
+                node.getStatus().getConditions().stream().anyMatch(condition->"Ready".equals(condition.getType()) && "True".equals(condition.getStatus())));
+            if(!alternative) return drainObservation("blocked","no_alternative_ready_node",false,0);
+            List<V1Pod> candidates=new ArrayList<>();
+            String cursor=null;
+            do {
+                var page=core.listPodForAllNamespaces().fieldSelector("spec.nodeName="+name).limit(100)._continue(cursor).execute();
+                for(V1Pod pod:page.getItems()) {
+                    if(pod.getMetadata()==null || pod.getSpec()==null) return drainObservation("blocked","invalid_pod_observation",false,candidates.size());
+                    if(pod.getStatus()!=null && ("Succeeded".equals(pod.getStatus().getPhase()) || "Failed".equals(pod.getStatus().getPhase()))) continue;
+                    if(ignoredDrainPod(pod)) continue;
+                    if(!managedDrainPod(pod,apps)) return drainObservation("blocked","node_contains_unmanaged_pods",false,candidates.size());
+                    if(hasLocalStorage(pod))
+                        return drainObservation("blocked","node_contains_local_storage",false,candidates.size());
+                    candidates.add(pod);
+                }
+                cursor=page.getMetadata()==null?null:page.getMetadata().getContinue();
+            } while(cursor!=null && !cursor.isBlank());
+            ObjectNode cordon=reconcileNode(specification);
+            if(!cordon.path("complete").asBoolean()) return drainObservation("cordoning",null,false,candidates.size());
+            if(candidates.isEmpty()) return drainObservation(wasUnschedulable?"drained":"cordoning",null,wasUnschedulable,0);
+            V1Pod pod=candidates.getFirst();
+            if(pod.getMetadata().getDeletionTimestamp()!=null) return drainObservation("terminating",null,false,candidates.size());
+            V1Eviction eviction=new V1Eviction().apiVersion("policy/v1").kind("Eviction")
+                .metadata(new V1ObjectMeta().name(pod.getMetadata().getName()).namespace(pod.getMetadata().getNamespace()))
+                .deleteOptions(new V1DeleteOptions().preconditions(new V1Preconditions().uid(pod.getMetadata().getUid())));
+            try { core.createNamespacedPodEviction(pod.getMetadata().getName(),pod.getMetadata().getNamespace(),eviction).execute(); }
+            catch(ApiException error) {
+                if(error.getCode()==404 || error.getCode()==409) return drainObservation("reconciling",null,false,candidates.size());
+                if(error.getCode()==429) return drainObservation("blocked","eviction_pdb_or_rate_limited",false,candidates.size());
+                if(error.getCode()==500) return drainObservation("blocked","eviction_rejected",false,candidates.size());
+                throw error;
+            }
+            return drainObservation("evicting",null,false,candidates.size());
+        } catch(ApiException error) {
+            if(error.getCode()==404) throw new DependencyException("node_or_owner_not_found",false);
+            if(error.getCode()==401 || error.getCode()==403) throw new DependencyException("cluster_permission_denied",false);
+            throw new DependencyException("cluster_unavailable",true);
+        }
+    }
+    private ObjectNode drainObservation(String phase,String error,boolean complete,int remaining) {
+        ObjectNode result=store.object(Map.of("phase",phase,"complete",complete,"remaining_managed_pods",remaining));
+        if(error!=null) result.put("error_code",error);
+        return result;
+    }
+    public static boolean ignoredDrainPod(V1Pod pod) {
+        V1ObjectMeta meta=pod.getMetadata();
+        if(meta==null) return false;
+        if(meta.getAnnotations()!=null && meta.getAnnotations().containsKey("kubernetes.io/config.mirror")) return true;
+        return meta.getOwnerReferences()!=null && meta.getOwnerReferences().stream()
+            .anyMatch(owner->"DaemonSet".equals(owner.getKind()) && Boolean.TRUE.equals(owner.getController()));
+    }
+    public static boolean hasLocalStorage(V1Pod pod) {
+        return pod.getSpec()!=null && pod.getSpec().getVolumes()!=null && pod.getSpec().getVolumes().stream()
+            .anyMatch(volume->volume.getEmptyDir()!=null || volume.getHostPath()!=null);
+    }
+    private boolean managedDrainPod(V1Pod pod,AppsV1Api apps) throws ApiException {
+        V1ObjectMeta meta=pod.getMetadata();
+        if(!env.getRequiredProperty("platform.namespace").equals(meta.getNamespace())) return false;
+        if(meta.getLabels()==null) return false;
+        String id=meta.getLabels().get(OWNER);
+        if(id==null || !id.matches("[a-zA-Z0-9-]{1,128}")) return false;
+        Integer known=store.jdbc.queryForObject("SELECT count(*) FROM resource WHERE id=? AND kind='workload' AND project=? AND NOT deleted",Integer.class,id,env.getRequiredProperty("platform.project"));
+        if(known==null || known!=1 || meta.getOwnerReferences()==null) return false;
+        var replicaOwner=meta.getOwnerReferences().stream().filter(owner->"ReplicaSet".equals(owner.getKind()) && Boolean.TRUE.equals(owner.getController())).findFirst();
+        if(replicaOwner.isEmpty()) return false;
+        V1ReplicaSet replica;
+        try { replica=apps.readNamespacedReplicaSet(replicaOwner.get().getName(),meta.getNamespace()).execute(); }
+        catch(ApiException missing) { if(missing.getCode()==404) return false; throw missing; }
+        if(!replicaOwner.get().getUid().equals(replica.getMetadata().getUid()) || replica.getMetadata().getOwnerReferences()==null) return false;
+        var deploymentOwner=replica.getMetadata().getOwnerReferences().stream().filter(owner->"Deployment".equals(owner.getKind()) && Boolean.TRUE.equals(owner.getController()) && id.equals(owner.getName())).findFirst();
+        if(deploymentOwner.isEmpty()) return false;
+        V1Deployment deployment;
+        try { deployment=apps.readNamespacedDeployment(id,meta.getNamespace()).execute(); }
+        catch(ApiException missing) { if(missing.getCode()==404) return false; throw missing; }
+        return deploymentOwner.get().getUid().equals(deployment.getMetadata().getUid()) &&
+            deployment.getMetadata().getLabels()!=null && id.equals(deployment.getMetadata().getLabels().get(OWNER));
+    }
     public V1Deployment deployment(String id,long version,ObjectNode spec) {
         var labels=Map.of(OWNER,id); String ns=spec.path("namespace").asText();
         V1Container c=new V1Container().name("service").image(spec.path("image").asText()).imagePullPolicy("IfNotPresent");
