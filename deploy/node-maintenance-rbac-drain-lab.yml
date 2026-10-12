@@ -1,0 +1,22 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: gpu-platform-node-maintenance-drain-lab
+rules:
+  - apiGroups: ['']
+    resources: [nodes]
+    resourceNames: [gpu-platform-drain-worker]
+    verbs: [get, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: gpu-platform-node-maintenance-drain-lab
+subjects:
+  - kind: ServiceAccount
+    name: platform-worker
+    namespace: platform-workloads
+roleRef:
+  kind: ClusterRole
+  name: gpu-platform-node-maintenance-drain-lab
+  apiGroup: rbac.authorization.k8s.io

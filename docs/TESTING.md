@@ -2,6 +2,12 @@
 
 本文件由实际检查结果更新，不以接口骨架或模拟通过代替真实基础设施验收。
 
+## M3 drain 合约测试与隔离环境准备（2026-10-12）
+
+新增 Kubernetes 客户端的内存 HTTP 合约测试，覆盖无备用节点、跨命名空间非托管 Pod、本地临时存储、DaemonSet 跳过、PDB 429 拒绝后重试，以及 Pod UID 驱逐前提和离开节点后的完成判断。`mvn verify`：29 项发现、13 项通过、16 项数据库依赖测试跳过、0 失败。独立三节点 kind 配置、初始化脚本和限定节点/命名空间的 RBAC 已写入仓库；PowerShell 语法检查通过。
+
+Docker Linux 引擎仍不可达；`com.docker.service` 显示停止，尝试启动时 Windows 拒绝打开该服务。因此独立集群未创建，RBAC 未应用，数据库集成测试与真实 drain 均未执行。`NODE_DRAIN_ENABLED` 继续保持默认 false。准备和后续验收步骤见 [DRAIN_LAB.md](DRAIN_LAB.md)。
+
 ## M3 受控 drain 开发检查（2026-10-09）
 
 新增默认关闭的 drain 接口与执行器逻辑，专用 RBAC 尚未应用到集群。`mvn verify` 通过：24 项发现、8 项执行通过、16 项因本地数据库依赖未运行；新增数据库集成测试尚待执行。静态测试确认仅跳过 DaemonSet/镜像 Pod，并识别 emptyDir 本地数据。Docker Desktop Linux 引擎无法连接，现有 kind API 亦不可达，因此没有真实多节点 Pod 迁移、PDB 拒绝、重启恢复验收。`node_drain` 保持 false；M3 drain 未完成。
