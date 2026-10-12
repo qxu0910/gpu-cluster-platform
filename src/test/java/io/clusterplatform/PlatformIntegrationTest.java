@@ -100,6 +100,7 @@ class PlatformIntegrationTest {
         var page=mvc.perform(get("/index.html")).andExpect(status().isOk()).andReturn();
         assertThat(page.getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8)).contains("集群管理控制台");
         mvc.perform(get("/app.js")).andExpect(status().isOk());
+        mvc.perform(get("/sample-data.js")).andExpect(status().isOk());
         mvc.perform(get("/style.css")).andExpect(status().isOk());
         mvc.perform(get("/v1/workloads")).andExpect(status().isUnauthorized());
         mvc.perform(get("/v1/image-uploads/private/credentials")).andExpect(status().isUnauthorized());
