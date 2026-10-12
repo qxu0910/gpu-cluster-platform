@@ -69,14 +69,15 @@ $('create-form').addEventListener('submit',e=>{e.preventDefault();const f=new Fo
 function showAction(w,action,label) { selected={...w,action}; $('action-title').textContent=label+' · '+w.name; $('action-description').textContent=action==='delete'?'将删除此服务及所属集群资源。镜像保留。': '基于版本 v'+w.version+' 提交，完成状态以实际集群观察为准。'; $('replicas-label').hidden=action!=='scale'; $('replicas').disabled=action!=='scale'; $('replicas').value=w.replicas; $('action-error').textContent=''; $('action-dialog').showModal(); }
 $('action-form').addEventListener('submit',e=>{e.preventDefault();const w=selected;submit(e.target,'action-error',()=>w.action==='delete'?api('/v1/workloads/'+w.id,'DELETE',undefined,{'If-Match':'"'+w.version+'"'}):api('/v1/workloads/'+w.id+'/'+w.action,'POST',{expected_version:w.version,...(w.action==='scale'?{replicas:Number($('replicas').value)}:{})}));});
 $('lookup').addEventListener('submit',async e=>{e.preventDefault();try{const id=$('operation-id').value.trim();const op=sampleMode?operations.get(id):await api('/v1/operations/'+encodeURIComponent(id));if(!op)throw new Error('模拟操作不存在');operations.set(id,op);renderOperations();}catch(err){notice(err.message,true);}});
-fetch('/actuator/health',{signal:AbortSignal.timeout(10000)}).then(r=>r.json()).then(h=>{if(sampleMode)return;$('health').textContent=h.status==='UP'?'● 管理服务在线':'服务未就绪';$('health').className='badge '+(h.status==='UP'?'good':'bad');}).catch(()=>{if(!sampleMode)$('health').textContent='服务连接失败';});
+function checkHealth() { fetch('/actuator/health',{signal:AbortSignal.timeout(10000)}).then(r=>r.json()).then(h=>{if(sampleMode)return;$('health').textContent=h.status==='UP'?'● 管理服务在线':'服务未就绪';$('health').className='badge '+(h.status==='UP'?'good':'bad');}).catch(()=>{if(!sampleMode)$('health').textContent='服务连接失败';}); }
 setInterval(refresh,5000);
 async function connectDemo() {
   const current=epoch;
   try { const session=await api('/v1/capabilities'); if(current===epoch)await connectedAs('演示用户 · '+session.subject,session); }
   catch(error) { if(current===epoch && !sampleMode) { $('connection-panel').hidden=false; notice('自动连接不可用，请使用已有凭据连接：'+error.message,true); } }
 }
-connectDemo();
+if(new URLSearchParams(location.search).get('mode')==='sample') enterSample();
+else { checkHealth(); connectDemo(); }
 
 function resetNodes() {
   emptyRows('node-rows',7,'连接后显示节点状态');

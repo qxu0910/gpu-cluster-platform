@@ -4,7 +4,9 @@
 
 ## 控制台模拟样例（2026-10-12）
 
-加入仅在浏览器内存中的 M3 展示数据：三个节点、两版镜像、一项服务，以及正常迁移、PDB 阻止、非托管 Pod 阻止三种排空场景；节点调度开关和 v2 预热可模拟操作。页面明确标注模拟，退出或刷新后样例消失，真实 drain 按能力开关显示。`node --check src/main/resources/static/app.js` 通过；`node --test src/test/sample-data.test.js` 三项通过；Maven `verify` 成功，29 项 Java 测试中 13 项通过、16 项数据库测试因环境未运行。浏览器自动化连接被本机文件访问权限阻止，因此尚未完成可视化点击验收。Docker/kind 仍不可用，模拟样例不计入真实 drain 或镜像预热验收。
+加入仅在浏览器内存中的 M3 展示数据：三个节点、两版镜像、一项服务，以及正常迁移、PDB 阻止、非托管 Pod 阻止三种排空场景；节点调度开关和 v2 预热可模拟操作。页面明确标注模拟，退出或刷新后样例消失，真实 drain 按能力开关显示。另提供只服务静态文件的 `run-sample.ps1` 与 `?mode=sample` 直达入口，可在 Docker 不可用时查看。
+
+`node --check src/main/resources/static/app.js` 通过；`node --test src/test/sample-data.test.js src/test/console-sample.test.js` 四项通过，其中控制台测试确认直达入口不发出网络请求、排空只改内存数据；PowerShell 启动脚本语法检查通过，脚本可启动静态服务。Maven `verify` 成功，29 项 Java 测试中 13 项通过、16 项数据库测试因环境未运行。浏览器自动化连接被本机文件访问权限阻止，本机 HTTP 探测被当前执行环境的套接字限制阻断，因此尚未完成页面的可视化或 HTTP 验收。Docker/kind 仍不可用，模拟样例不计入真实 drain 或镜像预热验收。
 
 ## M3 drain 合约测试与隔离环境准备（2026-10-12）
 
