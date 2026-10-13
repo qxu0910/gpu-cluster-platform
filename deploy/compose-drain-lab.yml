@@ -1,0 +1,57 @@
+name: gpu-cluster-platform-drain
+services:
+  postgres:
+    image: postgres:17.6
+    environment:
+      POSTGRES_DB: platform
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?Run scripts/init-drain-lab-env.ps1}
+    ports: ["127.0.0.1:55433:5432"]
+    volumes: ["drain-lab-db:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platform -d platform"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  api:
+    image: gpu-cluster-platform:drain-lab
+    build:
+      context: ..
+      dockerfile: Dockerfile.local
+    env_file: ../.local/drain-lab.env
+    environment:
+      PLATFORM_ROLE: api
+      DATABASE_URL: jdbc:postgresql://postgres:5432/platform
+      NODE_DRAIN_ENABLED: ${NODE_DRAIN_ENABLED:-false}
+      JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/config/truststore.p12 -Djavax.net.ssl.trustStorePassword=changeit
+    volumes: ["../.local/truststore.p12:/config/truststore.p12:ro"]
+    ports: ["127.0.0.1:18082:8080"]
+    extra_hosts: ["harbor.platform.test:host-gateway"]
+    networks: [default, kind]
+    depends_on:
+      postgres: {condition: service_healthy}
+  worker:
+    image: gpu-cluster-platform:drain-lab
+    build:
+      context: ..
+      dockerfile: Dockerfile.local
+    env_file: ../.local/drain-lab.env
+    environment:
+      PLATFORM_ROLE: worker
+      DATABASE_URL: jdbc:postgresql://postgres:5432/platform
+      NODE_DRAIN_ENABLED: ${NODE_DRAIN_ENABLED:-false}
+      PLATFORM_KUBECONFIG: /config/kubeconfig-worker
+      JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/config/truststore.p12 -Djavax.net.ssl.trustStorePassword=changeit
+    volumes:
+      - ../.local/truststore.p12:/config/truststore.p12:ro
+      - ../.local/kubeconfig-drain-lab-worker:/config/kubeconfig-worker:ro
+    extra_hosts: ["harbor.platform.test:host-gateway"]
+    networks: [default, kind]
+    depends_on:
+      postgres: {condition: service_healthy}
+volumes:
+  drain-lab-db:
+networks:
+  kind:
+    external: true
+    name: kind

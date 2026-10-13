@@ -2,6 +2,22 @@
 
 本文件由实际检查结果更新，不以接口骨架或模拟通过代替真实基础设施验收。
 
+## M3 独立集群真实 CPU drain 正常路径（2026-10-13）
+
+独立三节点 `gpu-platform-drain` 集群、受限 worker 令牌、三节点本地 Harbor CA、独立 PostgreSQL/API/worker Compose 环境已就绪。Harbor HTTPS 从新 worker 经 CA 校验后返回未认证的 401；实验 API 在 `127.0.0.1:18082` 采集到 3 个新鲜 Ready 节点，只允许维护 `gpu-platform-drain-worker`。独立环境默认 `node_drain=false`，验收时临时开启。
+
+`scripts/acceptance-drain-lab.ps1` 通过真实 Harbor 推送和 manifest 核验登记 CPU 镜像，以 digest 创建服务；先使 Pod 在目标 worker Ready，再通过平台 drain 接口驱逐。平台操作最终为 `succeeded` / `drained`；原 Pod 离开目标节点，新 UID 的 Pod 在 `gpu-platform-drain-worker2` Ready，容器内 HTTP 请求返回 `v1`。`scripts/cleanup-drain-lab-acceptance.ps1` 随后通过平台接口恢复目标节点调度并删除验收服务；复核三个节点均 Ready 且可调度，`platform-workloads` 无残留 Pod。验收记录和操作 ID 保存在不提交的 `.local/drain-acceptance-result.json`，最后将实验服务恢复到 `node_drain=false`。
+
+另在独立 PostgreSQL 的 `platform_test` 测试库运行 `mvn verify`：29 项 Java 测试全部执行并通过，0 失败、0 跳过。测试仅清理 `platform_test` 的平台表，未指向实验服务数据库 `platform`。
+
+本次仅证明正常迁移。PDB 拒绝、非托管 Pod、本地数据保护、执行器重启恢复和重复请求仍未在真实环境验收，M3 drain 尚未完成。
+
+## M3 独立排空集群初始化（2026-10-12）
+
+Docker Desktop Linux 引擎已恢复：`docker info` 返回 Server 29.7.2、OSType `linux`，context 为 `desktop-linux`。运行 `scripts/setup-drain-lab.ps1` 创建独立 `gpu-platform-drain` kind 集群，三个 v1.34.0 节点均为 Ready。首次执行在 RBAC 断言处失败：`kubectl auth can-i` 将 `pods/eviction` 解析为资源/名称，而不是待检查的子资源。改用 `create pods --subresource=eviction` 后，受限 worker 对目标节点 update=yes、其他 worker update=no，`platform-workloads` 内 Eviction=yes、`default` 内 Eviction=no；重跑脚本通过。未修改原 `gpu-platform` 集群或默认 kubeconfig。
+
+本次只完成测试集群和 RBAC 初始化。API、worker、PostgreSQL 和 Harbor 尚未接入该独立集群，真实 Pod 排空、PDB 拒绝与重启恢复尚未验收；`NODE_DRAIN_ENABLED` 保持默认 false。
+
 ## 控制台模拟样例（2026-10-12）
 
 加入仅在浏览器内存中的 M3 展示数据：三个节点、两版镜像、一项服务，以及正常迁移、PDB 阻止、非托管 Pod 阻止三种排空场景；节点调度开关和 v2 预热可模拟操作。页面明确标注模拟，退出或刷新后样例消失，真实 drain 按能力开关显示。另提供只服务静态文件的 `run-sample.ps1` 与 `?mode=sample` 直达入口，可在 Docker 不可用时查看。

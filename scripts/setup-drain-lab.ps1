@@ -25,8 +25,8 @@ foreach($manifest in @('worker-rbac.yml','node-drain-rbac.yml','node-maintenance
 $subject='system:serviceaccount:platform-workloads:platform-worker'
 $allowed=kubectl @kubectlArgs auth can-i update node/gpu-platform-drain-worker --as=$subject
 $denied=kubectl @kubectlArgs auth can-i update node/gpu-platform-drain-worker2 --as=$subject
-$evict=kubectl @kubectlArgs auth can-i create pods/eviction -n platform-workloads --as=$subject
-$otherNamespace=kubectl @kubectlArgs auth can-i create pods/eviction -n default --as=$subject
+$evict=kubectl @kubectlArgs auth can-i create pods --subresource=eviction -n platform-workloads --as=$subject
+$otherNamespace=kubectl @kubectlArgs auth can-i create pods --subresource=eviction -n default --as=$subject
 if($allowed.Trim() -ne 'yes' -or $denied.Trim() -ne 'no' -or $evict.Trim() -ne 'yes' -or $otherNamespace.Trim() -ne 'no') {
     throw 'Dedicated worker permissions differ from the bounded drain policy'
 }
