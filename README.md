@@ -49,7 +49,7 @@ API 与后台执行器由 `PLATFORM_ROLE=api|worker|all` 控制。默认 `all`�
 
 ## 维护与边界
 
-前端“节点状态”展示真实集群节点的就绪、调度开关、压力条件及资源容量，并可提交停止/恢复新工作负载调度操作。执行器每 15 秒采集，失联或超过 120 秒未更新显示 Unknown。容量不是实时使用率；停止调度不驱逐已有 Pod。节点查询接口为 `/v1/nodes` 和 `/v1/nodes/{name}`；维护操作和验收见 [API 契约](docs/API.md) 与 `scripts/acceptance-node-maintenance.ps1`。独立三节点环境已通过真实 CPU drain 正常迁移、非托管 Pod/PDB 阻止及执行器重启恢复；emptyDir/hostPath 的真实保护仍待验收，项目默认 drain 开关保持关闭，详见 [排空实验环境](docs/DRAIN_LAB.md)。
+前端“节点状态”展示真实集群节点的就绪、调度开关、压力条件及资源容量，并可提交停止/恢复新工作负载调度操作。执行器每 15 秒采集，失联或超过 120 秒未更新显示 Unknown。容量不是实时使用率；停止调度不驱逐已有 Pod。节点查询接口为 `/v1/nodes` 和 `/v1/nodes/{name}`；维护操作和验收见 [API 契约](docs/API.md) 与 `scripts/acceptance-node-maintenance.ps1`。独立三节点环境已通过真实 CPU drain 正常迁移、非托管 Pod/PDB 阻止、执行器重启恢复及 emptyDir/hostPath 本地存储保护；项目默认 drain 开关保持关闭，详见 [排空实验环境](docs/DRAIN_LAB.md)。
 
 - [状态与恢复](docs/OPERATIONS.md)：幂等、租约、失联、恢复及备份。
 - [版本与环境基线](docs/BASELINE.md)：固定版本和未验收环境项。

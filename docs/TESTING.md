@@ -2,11 +2,17 @@
 
 本文件由实际检查结果更新，不以接口骨架或模拟通过代替真实基础设施验收。
 
+## M3 独立集群真实本地存储保护（2026-10-13）
+
+`scripts/acceptance-drain-local-storage.ps1` 在独立三节点 kind 环境分别创建平台管理的 CPU 服务，使其在目标 worker 就绪，再给 Deployment 模板加入 `emptyDir` 或 `hostPath` 卷，挂载到容器 `/scratch` 并写入探针文件。两种情况下 drain 均返回 `blocked/node_contains_local_storage`，Kubernetes 目标节点仍可调度，带卷 Pod 保持存在。移除卷后，原操作自动收敛到 `succeeded`；旧 Pod 离开目标节点，新 UID 的 Pod 在第二个 worker Ready。两组服务随后通过平台接口删除，目标节点恢复调度。操作 ID 和新旧 Pod UID 保存在忽略提交的 `.local/drain-local-storage-acceptance-result.json`。
+
+同日复核实验 API `node_drain=false`，目标与备用 worker 可调度，验收命名空间无临时 Pod。以上与正常迁移、非托管 Pod/PDB 故障、执行器重启恢复组成独立 CPU 集群的 drain 验收；生产多节点 GPU 行为仍待真实硬件阶段验证。
+
 ## M3 独立集群真实 drain 故障与恢复（2026-10-13）
 
 `scripts/acceptance-drain-faults.ps1` 在独立集群通过两组真实故障。第一组在 `default` 命名空间把非托管 Pod 放到目标 worker：平台操作先为 `blocked/node_contains_unmanaged_pods`，Kubernetes 目标节点仍可调度；删除该 Pod 后，原操作继续完成。第二组在平台管理的一副本 Ready 服务上创建 `minAvailable=1` 的 PDB：Eviction 被拒，操作为 `blocked/eviction_pdb_or_rate_limited` 且目标节点已 cordon；同幂等键重试返回原操作 ID，不同键冲突返回 HTTP 409。阻止期间重启独立执行器，操作仍保持并恢复处理；删除 PDB 后，原操作收敛到 `succeeded/drained`，新 UID 的 Pod 在第二个 worker Ready。
 
-随后通过平台接口 uncordon、删除验收服务；`default` 和 `platform-workloads` 命名空间均无临时 Pod/PDB，三个节点均 Ready、可调度。两项最终操作及结果记录保存在忽略提交的 `.local/drain-fault-acceptance-result.json`。实验环境再次恢复 `node_drain=false`。emptyDir/hostPath 的真实保护场景尚未执行，因此 M3 drain 仍不标记完成。
+随后通过平台接口 uncordon、删除验收服务；`default` 和 `platform-workloads` 命名空间均无临时 Pod/PDB，三个节点均 Ready、可调度。两项最终操作及结果记录保存在忽略提交的 `.local/drain-fault-acceptance-result.json`。实验环境再次恢复 `node_drain=false`。
 
 ## M3 独立集群真实 CPU drain 正常路径（2026-10-13）
 
@@ -16,7 +22,7 @@
 
 另在独立 PostgreSQL 的 `platform_test` 测试库运行 `mvn verify`：29 项 Java 测试全部执行并通过，0 失败、0 跳过。测试仅清理 `platform_test` 的平台表，未指向实验服务数据库 `platform`。
 
-本节只记录正常迁移；故障与恢复场景的后续验收见上节。M3 drain 仍待本地数据保护验收。
+本节只记录正常迁移；故障与恢复场景的后续验收见上文。
 
 ## M3 独立排空集群初始化（2026-10-12）
 
