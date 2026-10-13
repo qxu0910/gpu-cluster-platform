@@ -2,6 +2,12 @@
 
 本文件由实际检查结果更新，不以接口骨架或模拟通过代替真实基础设施验收。
 
+## M3 独立集群真实 drain 故障与恢复（2026-10-13）
+
+`scripts/acceptance-drain-faults.ps1` 在独立集群通过两组真实故障。第一组在 `default` 命名空间把非托管 Pod 放到目标 worker：平台操作先为 `blocked/node_contains_unmanaged_pods`，Kubernetes 目标节点仍可调度；删除该 Pod 后，原操作继续完成。第二组在平台管理的一副本 Ready 服务上创建 `minAvailable=1` 的 PDB：Eviction 被拒，操作为 `blocked/eviction_pdb_or_rate_limited` 且目标节点已 cordon；同幂等键重试返回原操作 ID，不同键冲突返回 HTTP 409。阻止期间重启独立执行器，操作仍保持并恢复处理；删除 PDB 后，原操作收敛到 `succeeded/drained`，新 UID 的 Pod 在第二个 worker Ready。
+
+随后通过平台接口 uncordon、删除验收服务；`default` 和 `platform-workloads` 命名空间均无临时 Pod/PDB，三个节点均 Ready、可调度。两项最终操作及结果记录保存在忽略提交的 `.local/drain-fault-acceptance-result.json`。实验环境再次恢复 `node_drain=false`。emptyDir/hostPath 的真实保护场景尚未执行，因此 M3 drain 仍不标记完成。
+
 ## M3 独立集群真实 CPU drain 正常路径（2026-10-13）
 
 独立三节点 `gpu-platform-drain` 集群、受限 worker 令牌、三节点本地 Harbor CA、独立 PostgreSQL/API/worker Compose 环境已就绪。Harbor HTTPS 从新 worker 经 CA 校验后返回未认证的 401；实验 API 在 `127.0.0.1:18082` 采集到 3 个新鲜 Ready 节点，只允许维护 `gpu-platform-drain-worker`。独立环境默认 `node_drain=false`，验收时临时开启。
@@ -10,7 +16,7 @@
 
 另在独立 PostgreSQL 的 `platform_test` 测试库运行 `mvn verify`：29 项 Java 测试全部执行并通过，0 失败、0 跳过。测试仅清理 `platform_test` 的平台表，未指向实验服务数据库 `platform`。
 
-本次仅证明正常迁移。PDB 拒绝、非托管 Pod、本地数据保护、执行器重启恢复和重复请求仍未在真实环境验收，M3 drain 尚未完成。
+本节只记录正常迁移；故障与恢复场景的后续验收见上节。M3 drain 仍待本地数据保护验收。
 
 ## M3 独立排空集群初始化（2026-10-12）
 

@@ -1,8 +1,8 @@
 # 后续交付
 
 - M3 已完成增量：节点只读列表/详情、Ready 与压力条件、容量/可调度容量、采集新鲜度及前端展示；cordon/uncordon 的持久化操作、UID 校验、幂等和恢复观察。
-- M3 drain 开发中：已加入平台 Pod 归属核验、DaemonSet/镜像 Pod 跳过、非托管 Pod/本地数据保护、Eviction API 与 PDB 限流处理、blocked 操作恢复；独立三节点 kind 环境的真实 CPU 正常迁移已通过。PDB 拒绝、非托管 Pod、本地数据保护、执行器重启恢复和重复请求的真实验收仍待完成；项目 `NODE_DRAIN_ENABLED` 默认关闭，实验后已恢复 `node_drain=false`。
-- M3 待完成：补齐上述 drain 故障与恢复验收；节点资产关联、设备来源与健康、受控标签及逐节点镜像预热仍待开发。Kubernetes 1.34 的 image volume 默认关闭，预热机制需先验证运行时支持。`image_prewarm=false`。
+- M3 drain 开发中：已加入平台 Pod 归属核验、DaemonSet/镜像 Pod 跳过、非托管 Pod/本地数据保护、Eviction API 与 PDB 限流处理、blocked 操作恢复；独立三节点 kind 环境的真实 CPU 正常迁移、非托管 Pod 阻止、PDB 拒绝与解除、幂等冲突及执行器重启恢复已通过。本地数据 emptyDir/hostPath 的真实保护场景仍待验收；项目 `NODE_DRAIN_ENABLED` 默认关闭，实验后已恢复 `node_drain=false`。
+- M3 待完成：补齐 drain 本地数据保护验收；节点资产关联、设备来源与健康、受控标签及逐节点镜像预热仍待开发。Kubernetes 1.34 的 image volume 默认关闭，预热机制需先验证运行时支持。`image_prewarm=false`。
 - M4：真实 B300 试点，锁定硬件/驱动/运行时/GPU Operator 兼容基线；验证整卡分配、真实计算和停止后释放。带外操作仅在接口和授权策略确定后实现。
 - M5：分批纳管 64 节点/512 卡、容量与并发拉取验证、集群/数据库/仓库恢复演练、长连接维护约定。
 - 生产增强：多主体项目映射配置与管理、凭据引用型环境配置、只读机器人轮换自动化、操作取消/受控强制终止、速率限制、审计保留策略、依赖告警和正式部署最小权限角色。
