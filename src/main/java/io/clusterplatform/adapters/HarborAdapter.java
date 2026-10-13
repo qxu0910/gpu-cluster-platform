@@ -58,7 +58,7 @@ public class HarborAdapter implements RegistryAdapter {
         if(!digest.matches("sha256:[a-f0-9]{64}")) throw new DependencyException("invalid_registry_digest",false);
         if(upload.has("expected_digest") && !digest.equals(upload.path("expected_digest").asText())) throw new DependencyException("digest_mismatch",false);
         String os=artifact.path("extra_attrs").path("os").asText(),arch=artifact.path("extra_attrs").path("architecture").asText();
-        if(!os.equals("linux") || !arch.equals("amd64")) throw new DependencyException("unsupported_image_platform",false);
+        if(!os.equals("linux") || !Set.of("amd64","arm64").contains(arch)) throw new DependencyException("unsupported_image_platform",false);
         ObjectNode image=store.json.createObjectNode(); image.put("digest",digest); image.put("tag",upload.path("tag").asText());
         image.put("reference",URI.create(base).getAuthority()+"/"+project+"/"+repository+"@"+digest);
         image.put("architecture",arch); image.put("os",os); image.put("status","available");

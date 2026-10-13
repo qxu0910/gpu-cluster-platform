@@ -199,10 +199,13 @@ public class KubernetesAdapter implements ClusterAdapter {
         V1PodSpec pod=new V1PodSpec().containers(List.of(c)).automountServiceAccountToken(false)
             .terminationGracePeriodSeconds(spec.path("termination_grace_seconds").asLong()).imagePullSecrets(List.of(new V1LocalObjectReference().name(id+"-pull")));
         JsonNode placement=spec.path("placement"); if(placement.hasNonNull("node_pool")) pod.setNodeSelector(Map.of("platform.cluster.io/pool",placement.path("node_pool").asText()));
-        if(placement.path("allowed_nodes").isArray() && !placement.path("allowed_nodes").isEmpty()) {
-            pod.setAffinity(new V1Affinity().nodeAffinity(new V1NodeAffinity().requiredDuringSchedulingIgnoredDuringExecution(new V1NodeSelector().nodeSelectorTerms(List.of(
-                new V1NodeSelectorTerm().matchExpressions(List.of(new V1NodeSelectorRequirement().key("kubernetes.io/hostname").operator("In").values(strings(placement.path("allowed_nodes"))))))))));
-        }
+        List<V1NodeSelectorRequirement> requirements=new ArrayList<>();
+        String architecture=spec.path("image_architecture").asText();
+        if(!architecture.isBlank()) requirements.add(new V1NodeSelectorRequirement().key("kubernetes.io/arch").operator("In").values(List.of(architecture)));
+        if(placement.path("allowed_nodes").isArray() && !placement.path("allowed_nodes").isEmpty())
+            requirements.add(new V1NodeSelectorRequirement().key("kubernetes.io/hostname").operator("In").values(strings(placement.path("allowed_nodes"))));
+        if(!requirements.isEmpty()) pod.setAffinity(new V1Affinity().nodeAffinity(new V1NodeAffinity().requiredDuringSchedulingIgnoredDuringExecution(
+            new V1NodeSelector().nodeSelectorTerms(List.of(new V1NodeSelectorTerm().matchExpressions(requirements))))));
         return new V1Deployment().apiVersion("apps/v1").kind("Deployment")
             .metadata(new V1ObjectMeta().name(id).namespace(ns).labels(labels).annotations(Map.of(REVISION,Long.toString(version))))
             .spec(new V1DeploymentSpec().replicas(spec.path("replicas").asInt()).progressDeadlineSeconds(600)

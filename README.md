@@ -55,5 +55,6 @@ API 与后台执行器由 `PLATFORM_ROLE=api|worker|all` 控制。默认 `all`�
 - [版本与环境基线](docs/BASELINE.md)：固定版本和未验收环境项。
 - [开发基线](docs/PROJECT_SPEC.md)：原始交接文档，保留为范围依据。
 - [后续工作](docs/ROADMAP.md)：M3–M5、生产多主体映射、正式运维与硬件验收。
+- [DGX Spark 试点](docs/SPARK_PILOT.md)：ARM64 镜像准备、只读盘点与独立 GPU 接入验收顺序。
 
 `scripts/cleanup-local.ps1` 删除本项目测试集群并停止 Compose 服务，默认保留数据库卷。只有显式 `-DeleteDatabase` 才删除本项目数据库卷。测试 Harbor 数据随 kind 集群删除；需保留镜像时先导出或配置持久化外部存储。

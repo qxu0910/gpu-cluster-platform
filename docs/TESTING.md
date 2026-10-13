@@ -2,6 +2,10 @@
 
 本文件由实际检查结果更新，不以接口骨架或模拟通过代替真实基础设施验收。
 
+## DGX Spark ARM64 接入准备（2026-10-13）
+
+镜像核验新增单架构 `linux/arm64`，工作负载保存镜像架构并与显式允许节点共同形成必需的节点亲和条件。新增单元测试验证 ARM64 与 `allowed_nodes` 必须同时满足。`scripts/test.ps1 -Database` 使用原本地 PostgreSQL 的独立 `platform_test` 库执行 30 项 Java 测试，30 项通过、0 失败、0 跳过。未修改两个现有 kind 集群，也未连接 DGX Spark；ARM64 镜像推送、Spark 节点拉取和 GPU 实算仍未验收，步骤见 [Spark 试点](SPARK_PILOT.md)。
+
 ## M3 独立集群真实本地存储保护（2026-10-13）
 
 `scripts/acceptance-drain-local-storage.ps1` 在独立三节点 kind 环境分别创建平台管理的 CPU 服务，使其在目标 worker 就绪，再给 Deployment 模板加入 `emptyDir` 或 `hostPath` 卷，挂载到容器 `/scratch` 并写入探针文件。两种情况下 drain 均返回 `blocked/node_contains_local_storage`，Kubernetes 目标节点仍可调度，带卷 Pod 保持存在。移除卷后，原操作自动收敛到 `succeeded`；旧 Pod 离开目标节点，新 UID 的 Pod 在第二个 worker Ready。两组服务随后通过平台接口删除，目标节点恢复调度。操作 ID 和新旧 Pod UID 保存在忽略提交的 `.local/drain-local-storage-acceptance-result.json`。

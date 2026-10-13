@@ -24,6 +24,19 @@ class KubernetesAdapterTest {
         assertThat(pod.getContainers().getFirst().getReadinessProbe().getHttpGet().getPath()).isEqualTo("/ready");
         assertThat(pod.getContainers().getFirst().getResources().getLimits()).doesNotContainKey("nvidia.com/gpu");
     }
+    @Test void imageArchitectureAndAllowedNodesBothConstrainPlacement() throws Exception {
+        var spec=spec(); spec.put("image_architecture","arm64");
+        spec.putObject("placement").putArray("allowed_nodes").add("spark-1").add("spark-2");
+        var pod=adapter.deployment("workload-123",2,spec).getSpec().getTemplate().getSpec();
+        var requirements=pod.getAffinity().getNodeAffinity().getRequiredDuringSchedulingIgnoredDuringExecution()
+            .getNodeSelectorTerms().getFirst().getMatchExpressions();
+        assertThat(requirements).extracting(V1NodeSelectorRequirement::getKey)
+            .containsExactlyInAnyOrder("kubernetes.io/arch","kubernetes.io/hostname");
+        assertThat(requirements).filteredOn(r->r.getKey().equals("kubernetes.io/arch"))
+            .singleElement().satisfies(r->assertThat(r.getValues()).containsExactly("arm64"));
+        assertThat(requirements).filteredOn(r->r.getKey().equals("kubernetes.io/hostname"))
+            .singleElement().satisfies(r->assertThat(r.getValues()).containsExactly("spark-1","spark-2"));
+    }
     @Test void runningAndStaleGenerationAreNotReadyAndStopWaitsForPodDeletion() throws Exception {
         var spec=spec(); var d=adapter.deployment("workload-123",1,spec); d.getMetadata().uid("uid").generation(2L);
         d.status(new V1DeploymentStatus().observedGeneration(1L).availableReplicas(1).updatedReplicas(1).replicas(1));

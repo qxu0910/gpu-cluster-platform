@@ -50,7 +50,7 @@ drain 请求体与 cordon 相同。执行器要求另有 Ready 且可调度的�
 1. POST `/v1/image-uploads`：`{"repository":"demo","tag":"v1"}`。
 2. 轮询 operation，成功后 GET 上传会话取得 `target`。
 3. POST `/credentials` 取得 `registry`、`username`、`password`，按标准 Registry 协议直接推送；镜像层不经过管理接口。
-4. POST `/complete`：`{}` 或 `{"digest":"sha256:..."}`。平台通过 Harbor 读取真实 digest、OS 和架构；首版本地基线接受单平台 linux/amd64 镜像，其他架构/镜像索引明确拒绝。
+4. POST `/complete`：`{}` 或 `{"digest":"sha256:..."}`。平台通过 Harbor 读取真实 digest、OS 和架构；接受单平台 linux/amd64 或 linux/arm64 镜像，其他平台和镜像索引明确拒绝。ARM64 推送与节点拉取仍须在实机验收。
 5. 核验成功后 GET 上传会话取得 `image_id`，上传账号撤销。部署始终使用 `repository@sha256:...`。
 
 每次上传使用独立 Harbor 私有项目；上传机器人只能在该项目 push/pull。会话期限 24 小时，超期后台撤销机器人。节点使用独立只读机器人，凭据加密保存并仅安装到工作负载专用拉取 Secret。只读账号不自动过期，生产须按运维流程轮换。删除镜像版本仅撤销平台可部署权限；工作负载当前配置及历史 revision 仍引用时拒绝删除。
@@ -70,7 +70,7 @@ drain 请求体与 cordon 相同。执行器要求另有 Ready 且可调度的�
 
 0 卡仅在 `CPU_TEST=true` 下允许。GPU 按整卡申请，单副本最多 8 卡，副本上限 64；CPU 为 0.1–256 核，内存为 0.0625–2048 GiB，退出宽限 1–600 秒。这些是开发契约上限，不代表生产容量。
 
-可选 `command`、`args`、`env`、`startup`、`placement.node_pool`/`allowed_nodes`。放置通过 nodeSelector/affinity，禁止直接指定 nodeName。HTTP/TCP 探针端口必须声明为 TCP 服务端口；`readiness.type=process` 明确采用较弱的进程检查。正常模式不授予宿主权限或自动挂载平台 ServiceAccount。
+可选 `command`、`args`、`env`、`startup`、`placement.node_pool`/`allowed_nodes`。放置通过 nodeSelector/affinity，禁止直接指定 nodeName；已核验镜像的架构同时成为 `kubernetes.io/arch` 必须满足的节点亲和条件。HTTP/TCP 探针端口必须声明为 TCP 服务端口；`readiness.type=process` 明确采用较弱的进程检查。正常模式不授予宿主权限或自动挂载平台 ServiceAccount。
 
 状态改变请求如 `{"expected_version":1,"replicas":2}`。stop 保存恢复副本数；start 可省略 replicas。scale 到 0 等同停止但保留配置。revision 请求为 `{"expected_version":3,"configuration":{...完整配置...}}`。名称不可改变。冲突操作返回 409，版本前提必须与 GET 返回值匹配。显式 stop/delete 可在执行租约释放后接替未完成的部署操作，原操作记为 failed/superseded；新操作仍需观察实际停止/删除完成。执行器持有租约时返回 409，可用相同幂等键稍后重试；删除中的资源不可被 stop 接替。
 
