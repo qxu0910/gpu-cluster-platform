@@ -37,6 +37,16 @@ class KubernetesAdapterTest {
         assertThat(requirements).filteredOn(r->r.getKey().equals("kubernetes.io/hostname"))
             .singleElement().satisfies(r->assertThat(r.getValues()).containsExactly("spark-1","spark-2"));
     }
+    @Test void multiArchitectureIndexCanScheduleOnlyToVerifiedArchitectures() throws Exception {
+        var spec=spec(); spec.putArray("image_architectures").add("amd64").add("arm64");
+        var pod=adapter.deployment("workload-123",2,spec).getSpec().getTemplate().getSpec();
+        var requirements=pod.getAffinity().getNodeAffinity().getRequiredDuringSchedulingIgnoredDuringExecution()
+            .getNodeSelectorTerms().getFirst().getMatchExpressions();
+        assertThat(requirements).singleElement().satisfies(r->{
+            assertThat(r.getKey()).isEqualTo("kubernetes.io/arch");
+            assertThat(r.getValues()).containsExactly("amd64","arm64");
+        });
+    }
     @Test void runningAndStaleGenerationAreNotReadyAndStopWaitsForPodDeletion() throws Exception {
         var spec=spec(); var d=adapter.deployment("workload-123",1,spec); d.getMetadata().uid("uid").generation(2L);
         d.status(new V1DeploymentStatus().observedGeneration(1L).availableReplicas(1).updatedReplicas(1).replicas(1));
@@ -64,5 +74,18 @@ class KubernetesAdapterTest {
         assertThat(KubernetesAdapter.hasLocalStorage(unmanaged)).isFalse();
         unmanaged.getSpec().setVolumes(List.of(new V1Volume().name("scratch").emptyDir(new V1EmptyDirVolumeSource())));
         assertThat(KubernetesAdapter.hasLocalStorage(unmanaged)).isTrue();
+    }
+    @Test void diagnosticsKeepOnlyOwnedAllowlistedReasonsAndNeverRawMessages() {
+        var owned=new CoreV1Event().involvedObject(new V1ObjectReference().uid("owned"))
+            .reason("Unhealthy").message("token=private-value").count(3);
+        var foreign=new CoreV1Event().involvedObject(new V1ObjectReference().uid("foreign"))
+            .reason("FailedScheduling").message("private-node");
+        var normal=new CoreV1Event().involvedObject(new V1ObjectReference().uid("owned"))
+            .reason("Pulled").message("registry-password");
+        var result=adapter.diagnosticEvents(List.of(owned,foreign,normal),Map.of("owned","service-pod"));
+        assertThat(result.path("events")).hasSize(1);
+        assertThat(result.path("events").get(0).path("reason").asText()).isEqualTo("Unhealthy");
+        assertThat(result.path("events").get(0).path("category").asText()).isEqualTo("probe");
+        assertThat(result.toString()).doesNotContain("private-value","private-node","registry-password","message");
     }
 }

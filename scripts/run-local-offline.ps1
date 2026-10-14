@@ -1,0 +1,22 @@
+. "$PSScriptRoot/common.ps1"
+Import-PlatformEnvironment
+if(!(Test-Path "$root/.local/kubeconfig-worker" -PathType Leaf)) { throw 'Run scripts/configure-local-worker-identity.ps1 first' }
+$maven=Join-Path $root '.tools/apache-maven-3.9.11/bin/mvn.cmd'
+if(!(Test-Path $maven)) { $maven='mvn' }
+Push-Location $root
+try {
+    & $maven -B -DskipTests package
+    Assert-NativeSuccess 'Build application'
+    docker image inspect gpu-cluster-platform:local *> $null
+    Assert-NativeSuccess 'Find existing local platform runtime image'
+    docker build --pull=false --network=none -f Dockerfile.local-offline -t gpu-cluster-platform:local .
+    Assert-NativeSuccess 'Build application image from cached runtime'
+    docker compose --env-file "$root/.local/platform.env" -f "$root/deploy/compose.yml" --profile app up -d --no-build --force-recreate api worker
+    Assert-NativeSuccess 'Start platform from cached image'
+} finally { Pop-Location }
+$ready=$false
+for($attempt=0;$attempt -lt 120;$attempt++) {
+    try { $health=Invoke-RestMethod 'http://localhost:18080/actuator/health' -TimeoutSec 10; if($health.status -eq 'UP') { $ready=$true; break } } catch { }
+    Start-Sleep -Seconds 1
+}
+if(!$ready) { throw 'Management API did not become healthy within 120 checks' }

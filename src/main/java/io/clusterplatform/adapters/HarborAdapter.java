@@ -57,12 +57,36 @@ public class HarborAdapter implements RegistryAdapter {
         String digest=artifact.path("digest").asText();
         if(!digest.matches("sha256:[a-f0-9]{64}")) throw new DependencyException("invalid_registry_digest",false);
         if(upload.has("expected_digest") && !digest.equals(upload.path("expected_digest").asText())) throw new DependencyException("digest_mismatch",false);
-        String os=artifact.path("extra_attrs").path("os").asText(),arch=artifact.path("extra_attrs").path("architecture").asText();
-        if(!os.equals("linux") || !Set.of("amd64","arm64").contains(arch)) throw new DependencyException("unsupported_image_platform",false);
+        List<String> architectures=architectures(artifact);
         ObjectNode image=store.json.createObjectNode(); image.put("digest",digest); image.put("tag",upload.path("tag").asText());
         image.put("reference",URI.create(base).getAuthority()+"/"+project+"/"+repository+"@"+digest);
-        image.put("architecture",arch); image.put("os",os); image.put("status","available");
+        image.set("architectures",store.object(architectures));
+        if(architectures.size()==1) image.put("architecture",architectures.getFirst());
+        image.put("os","linux"); image.put("status","available");
         image.put("pull_credentials",upload.path("pull_credentials").asText()); return image;
+    }
+    public static List<String> architectures(JsonNode artifact) {
+        String mediaType=artifact.path("manifest_media_type").asText();
+        boolean index=mediaType.equals("application/vnd.oci.image.index.v1+json") ||
+            mediaType.equals("application/vnd.docker.distribution.manifest.list.v2+json");
+        if(!index) {
+            String os=artifact.path("extra_attrs").path("os").asText();
+            String arch=artifact.path("extra_attrs").path("architecture").asText();
+            if(!os.equals("linux") || !Set.of("amd64","arm64").contains(arch)) throw new DependencyException("unsupported_image_platform",false);
+            return List.of(arch);
+        }
+        JsonNode references=artifact.path("references");
+        if(!references.isArray() || references.isEmpty() || references.size()>64) throw new DependencyException("unsupported_image_platform",false);
+        Set<String> supported=new TreeSet<>();
+        for(JsonNode reference:references) {
+            String os=reference.path("platform").path("os").asText();
+            String arch=reference.path("platform").path("architecture").asText();
+            if(!os.equals("linux") || !Set.of("amd64","arm64").contains(arch)) continue;
+            if(!reference.path("child_digest").asText().matches("sha256:[a-f0-9]{64}") || !supported.add(arch))
+                throw new DependencyException("invalid_image_index",false);
+        }
+        if(supported.isEmpty()) throw new DependencyException("unsupported_image_platform",false);
+        return List.copyOf(supported);
     }
     public void revoke(ObjectNode upload) {
         if(upload.has("credentials")) {

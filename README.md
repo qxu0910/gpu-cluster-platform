@@ -18,6 +18,8 @@
 ./scripts/acceptance-faults.ps1
 ```
 
+如果 Docker Hub 暂时无法查询基础镜像，而本机已有先前构建的 `gpu-cluster-platform:local`，可运行 `./scripts/run-local-offline.ps1`。该脚本复用本机现有运行时镜像，仅替换本次编译的应用 JAR 并重建本项目 API/worker；它不会更新基础镜像，首次启动仍需正常完成在线初始化。
+
 `setup-cluster.ps1` 只操作 `gpu-platform` kind 集群、`harbor`/`platform-workloads` 命名空间；域名解析配置限于容器，不修改 Windows hosts。不改变原默认 kubeconfig，项目 kubeconfig 位于 `.local/`。宿主机 curl 调用 Harbor 时使用 `--resolve harbor.platform.test:30443:127.0.0.1`。集群内 Harbor 使用私有 CA（证书颁发机构：用于校验本地服务身份）；Java 信任库和节点信任配置均在项目范围内。证书有效期 30 天，仅用于本地测试。
 
 Compose 将管理接口绑定到 `127.0.0.1:18080`、数据库绑定到 `127.0.0.1:55432`。本地 worker 使用单独生成的 24 小时服务账号 kubeconfig，过期后重新运行 `configure-local-worker-identity.ps1` 并重启 worker；不会把管理员 kubeconfig 挂入 worker。本地回环管理连接使用 HTTP；生产必须在受控 HTTPS 入口后部署。Harbor 始终校验证书。真实集群、Harbor 管理凭据及 JWT（JSON Web 令牌：用于校验调用方身份）配置不能公开。
@@ -49,7 +51,7 @@ API 与后台执行器由 `PLATFORM_ROLE=api|worker|all` 控制。默认 `all`�
 
 ## 维护与边界
 
-前端“节点状态”展示真实集群节点的就绪、调度开关、压力条件及资源容量，并可提交停止/恢复新工作负载调度操作。执行器每 15 秒采集，失联或超过 120 秒未更新显示 Unknown。容量不是实时使用率；停止调度不驱逐已有 Pod。节点查询接口为 `/v1/nodes` 和 `/v1/nodes/{name}`；维护操作和验收见 [API 契约](docs/API.md) 与 `scripts/acceptance-node-maintenance.ps1`。独立三节点环境已通过真实 CPU drain 正常迁移、非托管 Pod/PDB 阻止、执行器重启恢复及 emptyDir/hostPath 本地存储保护；项目默认 drain 开关保持关闭，详见 [排空实验环境](docs/DRAIN_LAB.md)。
+前端“节点状态”展示真实集群节点的就绪、调度开关、压力条件、资源容量与已上报的架构/GPU 型号/驱动信息，并可提交停止/恢复新工作负载调度操作。工作负载“诊断”展示受限的 Pod 异常事件原因与采集时间，原始事件消息不会进入普通接口。执行器每 15 秒采集节点，失联或超过 120 秒未更新显示 Unknown。容量不是实时使用率；停止调度不驱逐已有 Pod。节点查询接口为 `/v1/nodes` 和 `/v1/nodes/{name}`；维护操作和验收见 [API 契约](docs/API.md) 与 `scripts/acceptance-node-maintenance.ps1`。独立三节点环境已通过真实 CPU drain 正常迁移、非托管 Pod/PDB 阻止、执行器重启恢复及 emptyDir/hostPath 本地存储保护；项目默认 drain 开关保持关闭，详见 [排空实验环境](docs/DRAIN_LAB.md)。
 
 - [状态与恢复](docs/OPERATIONS.md)：幂等、租约、失联、恢复及备份。
 - [版本与环境基线](docs/BASELINE.md)：固定版本和未验收环境项。

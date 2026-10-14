@@ -108,7 +108,8 @@ public class PlatformService {
     }
     private void prepare(ObjectNode body,ObjectNode image) {
         body.put("image",image.path("reference").asText()); body.put("namespace",env.getRequiredProperty("platform.namespace"));
-        if(image.hasNonNull("architecture")) body.put("image_architecture",image.path("architecture").asText());
+        if(image.path("architectures").isArray()) body.set("image_architectures",image.path("architectures").deepCopy());
+        else if(image.hasNonNull("architecture")) body.put("image_architecture",image.path("architecture").asText());
         body.put("pull_credentials",image.path("pull_credentials").asText());
         body.put("resume_replicas",body.path("replicas").asInt());
         if(body.hasNonNull("env")) { body.put("encrypted_env",secrets.encrypt(body.get("env").toString())); body.remove("env"); }

@@ -8,4 +8,5 @@
 .badge.sample{background:#fff1ca;color:#79580e}
 .node-actions{min-width:165px}
 .node-actions button{font-size:12px;padding:7px 10px;margin:2px 4px 2px 0}
+.diagnostic-list{margin:18px 0;max-height:45vh;overflow:auto}.diagnostic-list article{border-top:1px solid #edf0f5;padding:12px 0;display:grid;grid-template-columns:1fr auto;gap:3px 12px}.diagnostic-list article strong{color:#33455f}.diagnostic-list article span{color:#8a6170}.diagnostic-list article small{font-family:monospace;overflow-wrap:anywhere}
 @media(max-width:700px){.sample-banner{align-items:stretch;flex-direction:column}.sample-banner label{min-width:0}}

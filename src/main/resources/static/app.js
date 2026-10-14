@@ -2,6 +2,7 @@
 const $ = id => document.getElementById(id);
 let token = '', connected = false, epoch = 0, loading = false, busy = false, workloads = [], images = [], selected;
 let sampleMode = false, sampleState = null, capabilities = {};
+let diagnosticWorkloadId = null;
 const operations = new Map(), pendingKeys = new Map();
 const labels = {ready:'已就绪', stopped:'已停止', scheduling:'调度中', pulling:'拉取中', starting:'启动中', blocked:'受阻', unknown:'未知', deleting:'删除中', deleted:'已删除', pending:'待执行', running:'执行中', succeeded:'成功', failed:'失败'};
 function element(tag, text, cls) { const e = document.createElement(tag); e.textContent = text; if(cls) e.className = cls; return e; }
@@ -34,14 +35,37 @@ function render() {
     const state=element('td',''); state.append(badge(w.observed?.stale?'unknown':w.observed?.phase||'pending')); if(w.observed?.error_code) state.append(element('small',w.observed.error_code));
     if(sampleMode) state.append(element('small','模拟 Pod：'+(w.observed?.instances||[]).map(i=>i.node).join(', ')));
     const controls=element('td',''), buttons=element('div','','actions');
+    const diagnostic=element('button','诊断','secondary'); diagnostic.onclick=()=>showDiagnostics(w.id); buttons.append(diagnostic);
     for(const [action,label] of [['start','启动'],['stop','停止'],['scale','扩缩容'],['delete','删除']]) { const b=element('button',label,'secondary'); b.disabled=sampleMode||busy||(action==='start'&&w.replicas!==0); b.addEventListener('click',()=>showAction(w,action,label)); buttons.append(b); }
     controls.append(buttons); tr.append(name,state,element('td',w.replicas+' / v'+w.version),element('td',w.observed?.access?.host||'—'),controls); $('workload-rows').append(tr);
   }
   if(!workloads.length) emptyRows('workload-rows',5,'还没有服务，点击「创建服务」开始部署。');
   $('image-rows').replaceChildren(); $('image-select').replaceChildren();
-  for(const image of images) { const tr=element('tr',''), name=element('td',image.tag||image.id); name.append(element('small',image.reference)); tr.append(name,element('td',image.os+'/'+image.architecture),element('td',image.digest)); $('image-rows').append(tr); const option=element('option',(image.tag||'镜像')+' · '+image.id); option.value=image.id; $('image-select').append(option); }
+  for(const image of images) { const tr=element('tr',''), name=element('td',image.tag||image.id); name.append(element('small',image.reference)); tr.append(name,element('td',(image.os||'linux')+'/'+(image.architectures||[image.architecture]).filter(Boolean).join(', ')),element('td',image.digest)); $('image-rows').append(tr); const option=element('option',(image.tag||'镜像')+' · '+image.id); option.value=image.id; $('image-select').append(option); }
   if(!images.length) emptyRows('image-rows',3,'尚无已核验镜像，请先通过上传接口或验收脚本推送镜像。');
   $('new-workload').disabled=sampleMode||!connected||!images.length||busy;
+  if($('diagnostic-dialog').open) renderDiagnostics();
+}
+function showDiagnostics(id) { diagnosticWorkloadId=id; renderDiagnostics(); $('diagnostic-dialog').showModal(); }
+function renderDiagnostics() {
+  const w=workloads.find(item=>item.id===diagnosticWorkloadId);
+  if(!w) { $('diagnostic-dialog').close(); diagnosticWorkloadId=null; return; }
+  $('diagnostic-title').textContent='服务诊断 · '+w.name;
+  const observed=w.observed||{}, details=observed.diagnostics||{};
+  $('diagnostic-summary').textContent='状态：'+(labels[observed.phase]||observed.phase||'待观察')+(observed.error_code?' · 错误码：'+observed.error_code:'');
+  $('diagnostic-freshness').textContent=sampleMode?'模拟数据 · 不来自集群':observed.stale?'观察已过期':w.observed_at?'采集于 '+new Date(w.observed_at).toLocaleString('zh-CN'):'尚未采集';
+  $('diagnostic-list').replaceChildren();
+  if(details.status==='forbidden'||details.status==='unavailable') {
+    $('diagnostic-list').append(element('p',details.status==='forbidden'?'执行器没有读取事件的权限；服务状态仍可用。':'Kubernetes 事件暂不可用；服务状态仍可用。','empty')); return;
+  }
+  for(const event of details.events||[]) {
+    const row=element('article',''), reason=element('strong',event.reason||'事件');
+    row.append(reason,element('span',event.category||''),element('small',event.pod||'Pod 未知'));
+    row.append(element('small',(event.last_seen_at?new Date(event.last_seen_at).toLocaleString('zh-CN'):'时间未知')+' · '+(event.count||1)+' 次'));
+    $('diagnostic-list').append(row);
+  }
+  if(!details.events?.length) $('diagnostic-list').append(element('p',sampleMode?'模拟样例没有真实 Kubernetes 事件。':details.status==='idle'?'服务已就绪，无需读取异常事件。':'当前 Pod 没有可展示的异常事件。','empty'));
+  if(details.status==='partial') $('diagnostic-list').append(element('small','Pod 或事件数量较多，仅展示部分记录。'));
 }
 function renderOperations() { $('operation-list').replaceChildren(); for(const op of [...operations.values()].reverse()) { const row=element('article',''), info=element('div',op.action||'操作'); info.append(element('small',op.id),element('small',op.error?.code||op.stage||'')); row.append(info,badge(op.status)); $('operation-list').append(row); } if(!operations.size) $('operation-list').append(element('p','暂无操作记录','empty')); }
 async function refresh() {
@@ -53,7 +77,7 @@ async function refresh() {
     if(session!==epoch) return; workloads=ws; images=ims; await refreshNodes(); if(session!==epoch) return; render(); renderOperations(); notice('已同步 · '+new Date().toLocaleTimeString('zh-CN'));
   } catch(e) { if(session===epoch) notice(e.message,true); } finally { loading=false; }
 }
-function reset() { resetNodes(); epoch++; token=''; connected=false; sampleMode=false; sampleState=null; capabilities={}; workloads=[]; images=[]; operations.clear(); pendingKeys.clear(); $('token').value=''; $('connection-state').textContent='未连接'; $('sample-banner').hidden=true; $('sample-exit').hidden=true; for(const id of ['refresh','new-workload','disconnect']) $(id).disabled=true; $('lookup').querySelector('button').disabled=true; render(); renderOperations(); $('total').textContent=$('ready').textContent=$('image-count').textContent='—'; document.querySelectorAll('dialog').forEach(d=>{if(d.open)d.close();}); }
+function reset() { resetNodes(); epoch++; token=''; connected=false; sampleMode=false; sampleState=null; capabilities={}; workloads=[]; images=[]; diagnosticWorkloadId=null; operations.clear(); pendingKeys.clear(); $('token').value=''; $('connection-state').textContent='未连接'; $('sample-banner').hidden=true; $('sample-exit').hidden=true; for(const id of ['refresh','new-workload','disconnect']) $(id).disabled=true; $('lookup').querySelector('button').disabled=true; render(); renderOperations(); $('total').textContent=$('ready').textContent=$('image-count').textContent='—'; document.querySelectorAll('dialog').forEach(d=>{if(d.open)d.close();}); }
 function connectedAs(label, session) { capabilities=session; connected=true; $('connection-state').textContent=label; $('connection-panel').hidden=true; $('disconnect').disabled=$('refresh').disabled=false; $('lookup').querySelector('button').disabled=false; return refresh(); }
 $('connect').addEventListener('submit',async e=>{ e.preventDefault(); const value=$('token').value.trim().replace(/^Bearer\s+/i,''); reset(); token=value; const session=epoch; try { const info=await api('/v1/capabilities'); if(session!==epoch)return; await connectedAs('已连接',info); } catch(err) { if(session===epoch){reset(); $('connection-panel').hidden=false; notice(err.message,true);} } });
 $('disconnect').onclick=()=>{reset();$('connection-panel').hidden=false;notice('已断开，凭据已从页面内存清除。');};
@@ -102,7 +126,9 @@ function renderNodeSnapshot(snapshot,items) {
   const quantity=(node,key)=> (node.capacity?.[key]??'未上报')+' / '+(node.allocatable?.[key]??'未上报');
   for(const node of items) {
     const row=element('tr',''), name=element('td',node.name);
-    name.append(element('small',(node.kubelet_version||'—')+' · '+(node.runtime_version||'—')));
+    name.append(element('small',(node.architecture||'架构未上报')+' · '+(node.operating_system||'系统未上报')+' · '+(node.os_image||'发行版未上报')));
+    name.append(element('small','GPU '+(node.gpu_product||'型号未上报')+' · 驱动 '+(node.driver_version||'未上报')));
+    name.append(element('small','kubelet '+(node.kubelet_version||'—')+' · '+(node.runtime_version||'—')));
     if(sampleMode && node.prewarmed_images?.length) name.append(element('small','模拟预热：'+node.prewarmed_images.join(', ')));
     const state=element('td',''); state.append(badge(snapshot.stale?'unknown':node.ready==='True'?'ready':node.ready==='False'?'blocked':'unknown'));
     if(node.unschedulable) state.append(element('small','禁止新调度'));

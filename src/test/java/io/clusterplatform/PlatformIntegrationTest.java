@@ -121,6 +121,19 @@ class PlatformIntegrationTest {
         String own=store.insert("image","local",store.object(Map.of("reference","example","pull_credentials","TOP-SECRET")));
         mvc.perform(get("/v1/images/"+own).header("Authorization",TOKEN)).andExpect(status().isOk()).andExpect(jsonPath("$.pull_credentials").doesNotExist());
     }
+    @Test void workloadKeepsVerifiedIndexArchitectures() {
+        ObjectNode image=store.object(Map.of("reference","harbor/app@sha256:"+"a".repeat(64),"pull_credentials","encrypted"));
+        image.putArray("architectures").add("amd64").add("arm64");
+        String imageId=store.insert("image","local",image);
+        Contracts.Workload request=new Contracts.Workload("multiarch",imageId,"local-kind","service",1,
+            new Contracts.Resources(0,1,1),null,null,null,Map.of(),List.of(new Contracts.Port("http",8080,"TCP")),
+            new Contracts.Probe("http","/ready",8080),null,30);
+        String id=service.create("local",request).path("target_id").asText();
+        var architectures=store.resource("local","workload",id,false).path("image_architectures");
+        assertThat(architectures).hasSize(2);
+        assertThat(architectures.get(0).asText()).isEqualTo("amd64");
+        assertThat(architectures.get(1).asText()).isEqualTo("arm64");
+    }
     @Test void referenceProtectionVersionConflictAndEncryptedEnvironment() throws Exception {
         String image=store.insert("image","local",store.object(Map.of("reference","harbor/app@sha256:"+"a".repeat(64),"pull_credentials","encrypted")));
         Contracts.Workload request=new Contracts.Workload("demo",image,"local-kind","service",1,new Contracts.Resources(0,1,1),null,null,null,Map.of("PASSWORD","do-not-log"),List.of(new Contracts.Port("http",8080,"TCP")),new Contracts.Probe("http","/ready",8080),null,30);

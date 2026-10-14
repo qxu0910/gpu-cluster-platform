@@ -2,6 +2,18 @@
 
 本文件由实际检查结果更新，不以接口骨架或模拟通过代替真实基础设施验收。
 
+## 多架构镜像索引准备（2026-10-13）
+
+Harbor 核验现在解析 OCI/Docker 镜像索引的平台引用与子 manifest digest，持久化已支持的 `linux/amd64`、`linux/arm64` 架构集合；工作负载使用父索引 digest，并把集合投影为 `kubernetes.io/arch` 必需亲和条件。单架构旧记录继续可部署。2026-10-14 复核 `scripts/test.ps1 -Database`：36 项测试全部通过，包括单架构回归、索引引用异常、架构约束和工作负载持久化。尚未构建/推送真实多架构索引，也未在 ARM64 节点拉取；这部分不计入实机验收。
+
+最终本地版本已在 kind 上通过 `scripts/acceptance-diagnostics.ps1` 的真实 CPU 探针故障验收。完整 `scripts/acceptance.ps1` 回归尝试在构建镜像阶段受阻：Docker Hub 对 `busybox:1.37.0` manifest 的请求超时，本机未缓存该基础镜像；脚本未执行后续镜像推送与全生命周期步骤，因此本次不记为完整回归通过。随后标准 Compose 重建也因 Docker Hub 的 Eclipse Temurin 基础镜像元数据超时而失败；使用本机已有 `gpu-cluster-platform:local` 作为运行时基底，`scripts/run-local-offline.ps1` 成功部署最终代码，并再次通过真实探针诊断验收。原有完整 CPU 生命周期的历史通过记录仍见下文。
+
+## 工作负载诊断与节点资产增量（2026-10-13）
+
+执行器读取本项目命名空间中当前工作负载 Pod 的 Kubernetes 异常事件，并只保存白名单原因、类别、Pod、次数和时间，不保存原始消息；事件读取失败不会改变工作负载本身的就绪判断。控制台新增“诊断”入口。节点快照增加架构、系统版本与 GPU Feature Discovery 型号/驱动标签的白名单投影；CPU kind 无 GPU 标签，因此不宣称 GPU 资产或健康实测。
+
+`scripts/test.ps1 -Database` 在独立 `platform_test` 数据库完成 31 项测试，全部通过；`node --check src/main/resources/static/app.js` 通过。已在本项目 kind 环境重建 API/worker，并运行 `scripts/acceptance-diagnostics.ps1`：创建探针指向不存在路径的 CPU 服务，平台查询观察到真实 `Unhealthy` 事件、服务未误判 Ready、普通响应未包含原始事件消息；随后通过平台 DELETE 删除测试服务。该验收只覆盖本地 CPU 探针故障，不覆盖 Spark、B300 或 DCGM。
+
 ## DGX Spark ARM64 接入准备（2026-10-13）
 
 镜像核验新增单架构 `linux/arm64`，工作负载保存镜像架构并与显式允许节点共同形成必需的节点亲和条件。新增单元测试验证 ARM64 与 `allowed_nodes` 必须同时满足。`scripts/test.ps1 -Database` 使用原本地 PostgreSQL 的独立 `platform_test` 库执行 30 项 Java 测试，30 项通过、0 失败、0 跳过。未修改两个现有 kind 集群，也未连接 DGX Spark；ARM64 镜像推送、Spark 节点拉取和 GPU 实算仍未验收，步骤见 [Spark 试点](SPARK_PILOT.md)。

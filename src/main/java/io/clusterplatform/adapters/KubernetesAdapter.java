@@ -49,7 +49,10 @@ public class KubernetesAdapter implements ClusterAdapter {
             }
             ensureService(core,id,ns,spec);
             var pods=core.listNamespacedPod(ns).labelSelector(OWNER+"="+id).execute().getItems();
-            return observation(id,version,spec,existing,pods);
+            ObjectNode observed=observation(id,version,spec,existing,pods);
+            observed.set("diagnostics",observed.path("complete").asBoolean()
+                ?store.object(Map.of("status","idle","events",List.of())):diagnostics(core,ns,pods));
+            return observed;
         } catch(ApiException x) {
             if(x.getCode()==401 || x.getCode()==403) throw new DependencyException("cluster_permission_denied",false);
             if(x.getCode()==409) throw new DependencyException("cluster_resource_conflict",true);
@@ -200,8 +203,9 @@ public class KubernetesAdapter implements ClusterAdapter {
             .terminationGracePeriodSeconds(spec.path("termination_grace_seconds").asLong()).imagePullSecrets(List.of(new V1LocalObjectReference().name(id+"-pull")));
         JsonNode placement=spec.path("placement"); if(placement.hasNonNull("node_pool")) pod.setNodeSelector(Map.of("platform.cluster.io/pool",placement.path("node_pool").asText()));
         List<V1NodeSelectorRequirement> requirements=new ArrayList<>();
-        String architecture=spec.path("image_architecture").asText();
-        if(!architecture.isBlank()) requirements.add(new V1NodeSelectorRequirement().key("kubernetes.io/arch").operator("In").values(List.of(architecture)));
+        List<String> architectures=spec.path("image_architectures").isArray()?strings(spec.path("image_architectures")):List.of();
+        if(architectures.isEmpty() && !spec.path("image_architecture").asText().isBlank()) architectures=List.of(spec.path("image_architecture").asText());
+        if(!architectures.isEmpty()) requirements.add(new V1NodeSelectorRequirement().key("kubernetes.io/arch").operator("In").values(architectures));
         if(placement.path("allowed_nodes").isArray() && !placement.path("allowed_nodes").isEmpty())
             requirements.add(new V1NodeSelectorRequirement().key("kubernetes.io/hostname").operator("In").values(strings(placement.path("allowed_nodes"))));
         if(!requirements.isEmpty()) pod.setAffinity(new V1Affinity().nodeAffinity(new V1NodeAffinity().requiredDuringSchedulingIgnoredDuringExecution(
@@ -268,6 +272,56 @@ public class KubernetesAdapter implements ClusterAdapter {
         ObjectNode result=store.object(Map.of("phase",phase,"complete",ready,"desired_generation",version,"uid",deployment.getMetadata().getUid(),"readiness_mode",spec.path("readiness").path("type").asText()));
         if(!error.isEmpty()) result.put("error_code",error); result.set("instances",instances);
         result.putObject("access").put("scope","cluster").put("host",id+"."+spec.path("namespace").asText()+".svc.cluster.local"); return result;
+    }
+    private ObjectNode diagnostics(CoreV1Api core,String namespace,List<V1Pod> pods) {
+        ObjectNode result=store.object(Map.of("status","available"));
+        result.putArray("events");
+        if(pods.isEmpty()) return result;
+        List<CoreV1Event> events=new ArrayList<>();
+        Map<String,String> names=new HashMap<>();
+        boolean limited=pods.size()>8;
+        try {
+            for(V1Pod pod:pods.stream().limit(8).toList()) {
+                if(pod.getMetadata()==null || pod.getMetadata().getUid()==null) continue;
+                String uid=pod.getMetadata().getUid();
+                names.put(uid,pod.getMetadata().getName());
+                var page=core.listNamespacedEvent(namespace).fieldSelector("involvedObject.uid="+uid).limit(100).execute();
+                events.addAll(page.getItems());
+                if(page.getMetadata()!=null && page.getMetadata().getContinue()!=null && !page.getMetadata().getContinue().isBlank()) limited=true;
+            }
+        } catch(Exception failure) {
+            boolean forbidden=failure instanceof ApiException api && (api.getCode()==401 || api.getCode()==403);
+            result.put("status",forbidden?"forbidden":"unavailable");
+            return result;
+        }
+        ObjectNode projected=diagnosticEvents(events,names);
+        result.set("events",projected.path("events"));
+        if(limited) result.put("status","partial");
+        return result;
+    }
+    public ObjectNode diagnosticEvents(List<CoreV1Event> events,Map<String,String> podNames) {
+        ObjectNode result=store.object(Map.of("status","available"));
+        var items=result.putArray("events");
+        events.stream().filter(event->event.getInvolvedObject()!=null && podNames.containsKey(event.getInvolvedObject().getUid()))
+            .filter(event->event.getReason()!=null && Set.of("FailedScheduling","FailedMount","Failed","BackOff","Unhealthy","FailedCreatePodSandBox").contains(event.getReason()))
+            .sorted(Comparator.comparing((CoreV1Event event)->event.getLastTimestamp()!=null?event.getLastTimestamp().toString():
+                event.getMetadata()!=null && event.getMetadata().getCreationTimestamp()!=null?event.getMetadata().getCreationTimestamp().toString():"" ).reversed())
+            .limit(12).forEach(event->{
+                ObjectNode item=items.addObject();
+                item.put("pod",podNames.get(event.getInvolvedObject().getUid()));
+                item.put("reason",event.getReason());
+                item.put("category",switch(event.getReason()) {
+                    case "FailedScheduling" -> "scheduling";
+                    case "FailedMount" -> "storage";
+                    case "Unhealthy" -> "probe";
+                    default -> "runtime";
+                });
+                item.put("count",event.getCount()==null?1:event.getCount());
+                if(event.getLastTimestamp()!=null) item.put("last_seen_at",event.getLastTimestamp().toString());
+                else if(event.getMetadata()!=null && event.getMetadata().getCreationTimestamp()!=null)
+                    item.put("last_seen_at",event.getMetadata().getCreationTimestamp().toString());
+            });
+        return result;
     }
     private int number(Integer n) { return n==null?0:n; }
     private String pullError(String message) {

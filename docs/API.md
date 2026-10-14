@@ -35,13 +35,13 @@
 
 执行器每 15 秒读取配置集群的节点并保存到 PostgreSQL，接口进程只读取快照，不持有 kubeconfig。查询按服务端主体对应的项目和集群隔离，需要 `platform.read` 权限。节点是集群级资源，当前操作主体可观察其映射集群的全部节点；这不是命名空间级节点隔离。
 
-节点字段包含 name、uid、resource_version、maintenance_allowed、ready（True/False/Unknown）、unschedulable、capacity、allocatable、conditions、kubelet_version、runtime_version、architecture、operating_system。资源只返回 cpu、memory、pods、nvidia.com/gpu；GPU 未上报时不填充为 0。数量保留 Kubernetes 单位，例如内存 Ki、CPU m。容量不代表实时利用率，也不等同剩余未申请资源。
+节点字段包含 name、uid、resource_version、maintenance_allowed、ready（True/False/Unknown）、unschedulable、capacity、allocatable、conditions、kubelet_version、runtime_version、architecture、operating_system、kernel_version 和 os_image。若集群已部署 GPU Feature Discovery，额外投影 `nvidia.com/gpu.product` 为 gpu_product、`nvidia.com/cuda.driver-version.full` 为 driver_version；未上报时省略。资源只返回 cpu、memory、pods、nvidia.com/gpu；GPU 未上报时不填充为 0。数量保留 Kubernetes 单位，例如内存 Ki、CPU m。容量不代表实时利用率，也不等同剩余未申请资源，GPU 标签亦不代表设备健康。
 
 集群调用失败或最后成功采集超过 120 秒，stale=true、ready=Unknown，保留 observed_at 和历史容量/条件。依赖错误通过 error_code 返回，页面明确标记历史观察。首次采集前返回空列表和 node_observation_pending；新鲜快照中不存在的节点详情为 404，无法确认时为 503。节点信息不返回地址、任意标签/注解或原始异常消息。
 
 `POST /v1/nodes/{name}/cordon` 或 `/uncordon` 使用 `{"expected_uid":"...","expected_resource_version":"..."}`，两个值来自最新节点详情。必须提供 `Idempotency-Key`；重复请求返回同一操作。仅 `NODE_MAINTENANCE_NODES` 显式列出的节点可以修改；快照陈旧返回 503，节点身份或版本变化返回 409，同一节点已有未完成操作也返回 409。worker 再次检查允许名单与实际 UID，使用 Kubernetes resourceVersion 更新 `spec.unschedulable`，确认变更后才把操作标为成功。节点名称重新指向不同 UID 时拒绝沿用旧操作。cordon 只停止新 Pod 调度，不驱逐已有 Pod。调用方需要 `platform.write` 权限。
 
-`deploy/worker-rbac.yml` 只授予节点 get/list；`deploy/node-maintenance-rbac-local.yml` 仅对本地测试节点 `gpu-platform-control-plane` 授予 get/update。drain 所需的跨命名空间 Pod 列表、平台命名空间 ReplicaSet 读取与 Pod Eviction 创建权限单独放在 `deploy/node-drain-rbac.yml`，默认不安装。`node_observation=true`、`node_maintenance=true`，当前 `node_drain=false`、`image_prewarm=false`。
+`deploy/worker-rbac.yml` 授予节点 get/list，以及平台工作负载命名空间内事件 list；`deploy/node-maintenance-rbac-local.yml` 仅对本地测试节点 `gpu-platform-control-plane` 授予 get/update。drain 所需的跨命名空间 Pod 列表、平台命名空间 ReplicaSet 读取与 Pod Eviction 创建权限单独放在 `deploy/node-drain-rbac.yml`，默认不安装。`node_observation=true`、`node_maintenance=true`，当前 `node_drain=false`、`image_prewarm=false`。
 
 drain 请求体与 cordon 相同。执行器要求另有 Ready 且可调度的节点，检查目标节点全部非终态 Pod：跳过 DaemonSet 与静态镜像 Pod，只驱逐数据库中本项目工作负载所拥有的 Deployment→ReplicaSet→Pod；发现非托管 Pod、emptyDir 或 hostPath 则 blocked，不执行强制删除。先停止目标节点新调度，再逐个调用 policy/v1 Eviction，429/PDB 拒绝进入可重试 blocked，直到平台 Pod 从目标节点消失才成功。blocked drain 可在无有效执行器租约时由 uncordon 接替。此功能需在隔离多节点集群真实验收后开启；当前默认返回 501，不能将代码级测试视为排空成功。
 
@@ -50,7 +50,7 @@ drain 请求体与 cordon 相同。执行器要求另有 Ready 且可调度的�
 1. POST `/v1/image-uploads`：`{"repository":"demo","tag":"v1"}`。
 2. 轮询 operation，成功后 GET 上传会话取得 `target`。
 3. POST `/credentials` 取得 `registry`、`username`、`password`，按标准 Registry 协议直接推送；镜像层不经过管理接口。
-4. POST `/complete`：`{}` 或 `{"digest":"sha256:..."}`。平台通过 Harbor 读取真实 digest、OS 和架构；接受单平台 linux/amd64 或 linux/arm64 镜像，其他平台和镜像索引明确拒绝。ARM64 推送与节点拉取仍须在实机验收。
+4. POST `/complete`：`{}` 或 `{"digest":"sha256:..."}`。平台通过 Harbor 读取真实 digest、OS 和架构；接受单平台 linux/amd64、linux/arm64，以及带合法子 manifest digest 的 OCI/Docker 镜像索引。索引只登记已核验的 linux/amd64、linux/arm64 子架构；重复架构或缺失可部署架构会被拒绝。部署始终固定父索引 digest，并将已核验架构集合设置为节点亲和条件。ARM64 与多架构索引的真实推送、节点拉取仍须另行验收。
 5. 核验成功后 GET 上传会话取得 `image_id`，上传账号撤销。部署始终使用 `repository@sha256:...`。
 
 每次上传使用独立 Harbor 私有项目；上传机器人只能在该项目 push/pull。会话期限 24 小时，超期后台撤销机器人。节点使用独立只读机器人，凭据加密保存并仅安装到工作负载专用拉取 Secret。只读账号不自动过期，生产须按运维流程轮换。删除镜像版本仅撤销平台可部署权限；工作负载当前配置及历史 revision 仍引用时拒绝删除。
@@ -70,8 +70,10 @@ drain 请求体与 cordon 相同。执行器要求另有 Ready 且可调度的�
 
 0 卡仅在 `CPU_TEST=true` 下允许。GPU 按整卡申请，单副本最多 8 卡，副本上限 64；CPU 为 0.1–256 核，内存为 0.0625–2048 GiB，退出宽限 1–600 秒。这些是开发契约上限，不代表生产容量。
 
-可选 `command`、`args`、`env`、`startup`、`placement.node_pool`/`allowed_nodes`。放置通过 nodeSelector/affinity，禁止直接指定 nodeName；已核验镜像的架构同时成为 `kubernetes.io/arch` 必须满足的节点亲和条件。HTTP/TCP 探针端口必须声明为 TCP 服务端口；`readiness.type=process` 明确采用较弱的进程检查。正常模式不授予宿主权限或自动挂载平台 ServiceAccount。
+可选 `command`、`args`、`env`、`startup`、`placement.node_pool`/`allowed_nodes`。放置通过 nodeSelector/affinity，禁止直接指定 nodeName；已核验镜像的单个或多个架构同时成为 `kubernetes.io/arch` 必须满足的节点亲和条件。HTTP/TCP 探针端口必须声明为 TCP 服务端口；`readiness.type=process` 明确采用较弱的进程检查。正常模式不授予宿主权限或自动挂载平台 ServiceAccount。
 
 状态改变请求如 `{"expected_version":1,"replicas":2}`。stop 保存恢复副本数；start 可省略 replicas。scale 到 0 等同停止但保留配置。revision 请求为 `{"expected_version":3,"configuration":{...完整配置...}}`。名称不可改变。冲突操作返回 409，版本前提必须与 GET 返回值匹配。显式 stop/delete 可在执行租约释放后接替未完成的部署操作，原操作记为 failed/superseded；新操作仍需观察实际停止/删除完成。执行器持有租约时返回 409，可用相同幂等键稍后重试；删除中的资源不可被 stop 接替。
 
 返回的 `observed.access` 含 `scope=cluster` 与服务 DNS 名；仅保证集群内访问范围。上游外部可达性、生产出口和长连接无损迁移不在本轮承诺内。
+
+`GET /v1/workloads` 和 `GET /v1/workloads/{id}` 的 `observed.diagnostics` 提供当前 Pod 的异常事件摘要。`status=available` 表示读取成功，`partial` 表示 Pod 或事件分页被限制，`forbidden`/`unavailable` 表示事件读取失败但服务状态仍可查询，`idle` 表示服务已就绪而未读取事件。`events` 最多 12 条，仅含 pod、reason、category、count、last_seen_at；执行器最多检查 8 个当前 Pod、每个 Pod 最多 100 个事件。不返回原始 Kubernetes event.message，避免在普通查询中暴露镜像地址、路径或其他敏感内容。`FailedScheduling`、`Unhealthy` 等 reason 是线索，具体镜像拉取错误继续以 `observed.error_code` 为准。接口仍按项目隔离；旧快照需结合 `observed_at`/`stale` 判断。

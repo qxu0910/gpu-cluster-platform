@@ -43,6 +43,13 @@ public class NodeObserver {
             "unschedulable",node.getSpec()!=null && Boolean.TRUE.equals(node.getSpec().getUnschedulable())));
         result.put("uid",node.getMetadata().getUid());
         result.put("resource_version",node.getMetadata().getResourceVersion());
+        var labels=node.getMetadata().getLabels();
+        if(labels!=null) {
+            String product=labels.get("nvidia.com/gpu.product");
+            if(product!=null && product.length()<=128) result.put("gpu_product",product);
+            String driver=labels.get("nvidia.com/cuda.driver-version.full");
+            if(driver!=null && driver.matches("[0-9]+(\\.[0-9]+){1,3}")) result.put("driver_version",driver);
+        }
         var conditions=result.putArray("conditions");
         var status=node.getStatus();
         if(status==null) return result;
@@ -62,6 +69,8 @@ public class NodeObserver {
             result.put("runtime_version",status.getNodeInfo().getContainerRuntimeVersion());
             result.put("architecture",status.getNodeInfo().getArchitecture());
             result.put("operating_system",status.getNodeInfo().getOperatingSystem());
+            result.put("kernel_version",status.getNodeInfo().getKernelVersion());
+            result.put("os_image",status.getNodeInfo().getOsImage());
         }
         return result;
     }

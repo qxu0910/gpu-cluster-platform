@@ -17,6 +17,9 @@ rules:
     resources: [pods]
     verbs: [get, list, watch]
   - apiGroups: ['']
+    resources: [events]
+    verbs: [list]
+  - apiGroups: ['']
     resources: [services, secrets]
     verbs: [get, create, update, delete]
 ---

@@ -1,0 +1,3 @@
+# Reuse the already-built local runtime when Docker Hub metadata is unavailable.
+FROM gpu-cluster-platform:local
+COPY target/gpu-cluster-platform-0.1.0.jar /app/app.jar
